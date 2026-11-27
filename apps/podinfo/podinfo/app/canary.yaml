@@ -1,0 +1,53 @@
+# Flagger creates the Services podinfo, podinfo-primary and podinfo-canary and
+# an HTTPRoute on the ingress Gateway that splits traffic between the last two.
+apiVersion: flagger.app/v1beta1
+kind: Canary
+metadata:
+  name: podinfo
+  namespace: podinfo
+spec:
+  targetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: podinfo
+  service:
+    port: 9898
+    targetPort: http
+    hosts:
+      - podinfo.localhost
+    gatewayRefs:
+      - name: ingress
+        namespace: istio-ingress
+  analysis:
+    # Every 30s, move 20% more traffic to the new version, up to 60%, then
+    # promote it. Five failed checks roll it back; the first check or two
+    # can fail only because the new version has no metrics yet.
+    interval: 30s
+    stepWeight: 20
+    maxWeight: 60
+    threshold: 5
+    metrics:
+      - name: error-rate
+        templateRef:
+          name: istio-error-rate
+          namespace: flagger-system
+        # Percent.
+        thresholdRange:
+          max: 1
+        interval: 1m
+      - name: latency
+        templateRef:
+          name: istio-latency
+          namespace: flagger-system
+        # Seconds.
+        thresholdRange:
+          max: 0.5
+        interval: 1m
+    webhooks:
+      # The analysis needs traffic, and only traffic through the Gateway is
+      # measured.
+      - name: load
+        url: http://loadtester.flagger-system/
+        timeout: 5s
+        metadata:
+          cmd: hey -z 1m -q 10 -c 2 -host podinfo.localhost http://ingress-istio.istio-ingress/

@@ -1,0 +1,27 @@
+# Demo app, released as a canary: http://podinfo.localhost:8080
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: podinfo
+  namespace: flux-system
+spec:
+  dependsOn:
+    - name: ingress
+    - name: flagger-metrics
+    - name: loadtester
+  interval: 1h
+  retryInterval: 1m
+  timeout: 5m
+  sourceRef:
+    kind: OCIRepository
+    name: flux-system
+  path: ./apps/podinfo/podinfo/app
+  prune: true
+  wait: true
+  # Ready once Flagger has set up the primary and the route, or has finished
+  # a release. A release in progress keeps it waiting.
+  healthCheckExprs:
+    - apiVersion: flagger.app/v1beta1
+      kind: Canary
+      failed: status.phase == 'Failed'
+      current: status.phase in ['Initialized', 'Succeeded']

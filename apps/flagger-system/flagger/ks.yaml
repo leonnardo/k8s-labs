@@ -1,0 +1,42 @@
+# Progressive delivery controller. It shifts traffic by editing the weights of
+# an HTTPRoute and decides from Prometheus whether to go on.
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: flagger
+  namespace: flux-system
+spec:
+  dependsOn:
+    # HTTPRoute CRD.
+    - name: gateway-api
+    # Prometheus, and the PodMonitor CRD for Flagger's own metrics.
+    - name: kube-prometheus-stack
+  interval: 1h
+  retryInterval: 1m
+  timeout: 5m
+  sourceRef:
+    kind: OCIRepository
+    name: flux-system
+  path: ./apps/flagger-system/flagger/app
+  prune: true
+  wait: true
+---
+# Queries that a Canary analysis can refer to. A separate Kustomization
+# because the MetricTemplate CRD comes with the Flagger release.
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: flagger-metrics
+  namespace: flux-system
+spec:
+  dependsOn:
+    - name: flagger
+  interval: 1h
+  retryInterval: 1m
+  timeout: 5m
+  sourceRef:
+    kind: OCIRepository
+    name: flux-system
+  path: ./apps/flagger-system/flagger/metrics
+  prune: true
+  wait: true
