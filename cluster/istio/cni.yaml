@@ -1,0 +1,29 @@
+# Node agent that redirects the traffic of ambient pods to ztunnel.
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: OCIRepository
+metadata:
+  name: istio-cni
+  namespace: istio-system
+spec:
+  interval: 1h
+  url: oci://ghcr.io/istio/release/charts/cni
+  ref:
+    tag: 1.32.0
+  layerSelector:
+    mediaType: application/vnd.cncf.helm.chart.content.v1.tar+gzip
+    operation: copy
+---
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: istio-cni
+  namespace: istio-system
+spec:
+  interval: 1h
+  dependsOn:
+    - name: istiod
+  chartRef:
+    kind: OCIRepository
+    name: istio-cni
+  values:
+    profile: ambient

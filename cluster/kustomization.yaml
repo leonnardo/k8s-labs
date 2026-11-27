@@ -1,5 +1,11 @@
 # Root of everything Flux reconciles. `make sync` packages this directory as an
 # OCI artifact and Flux applies whatever is listed here.
+#
+# Each entry is a Flux Kustomization that applies the directory of the same
+# name, in the order set by its dependsOn.
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
-resources: []
+resources:
+  - gateway-api.yaml
+  - istio.yaml
+  - ingress.yaml

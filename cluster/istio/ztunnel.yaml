@@ -1,0 +1,27 @@
+# Per-node L4 proxy: mTLS and L4 telemetry for ambient pods.
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: OCIRepository
+metadata:
+  name: ztunnel
+  namespace: istio-system
+spec:
+  interval: 1h
+  url: oci://ghcr.io/istio/release/charts/ztunnel
+  ref:
+    tag: 1.32.0
+  layerSelector:
+    mediaType: application/vnd.cncf.helm.chart.content.v1.tar+gzip
+    operation: copy
+---
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: ztunnel
+  namespace: istio-system
+spec:
+  interval: 1h
+  dependsOn:
+    - name: istio-cni
+  chartRef:
+    kind: OCIRepository
+    name: ztunnel
