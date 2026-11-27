@@ -3,10 +3,10 @@
 Local Kubernetes lab on [kind](https://kind.sigs.k8s.io/), built one layer at a
 time: Flux, Istio ambient, Flagger and observability.
 
-Three layers exist so far: a cluster where Flux reconciles whatever is in
+Four layers exist so far: a cluster where Flux reconciles whatever is in
 [`apps/`](apps) with no Git push in the loop, on top of it Istio in
-ambient mode with a Gateway reachable from the host, and Prometheus,
-Alertmanager and Grafana watching all of it.
+ambient mode with a Gateway reachable from the host, Prometheus, Alertmanager
+and Grafana watching all of it, and Flagger releasing a demo app as a canary.
 
 ## Requirements
 
@@ -28,6 +28,8 @@ Tested on macOS with OrbStack (the first two layers also on Linux) with:
 | cert-manager  | v1.21.3                    |
 | metrics-server | chart 3.14.0              |
 | kube-prometheus-stack | chart 94.1.0       |
+| Flagger       | 1.45.0, loadtester chart 0.39.0 |
+| podinfo       | 6.17.0                     |
 
 ## Usage
 
@@ -81,6 +83,33 @@ label required.
 Its data is stored on the host, in `~/.local/share/k8s-labs/prometheus`, and
 survives `make down`. Delete that directory to start empty.
 
+### Releasing a canary
+
+<http://podinfo.localhost:8080> is a demo app managed by Flagger. Change
+anything in the pod template of
+[`apps/podinfo/podinfo/app/deployment.yaml`](apps/podinfo/podinfo/app/deployment.yaml),
+for example `PODINFO_UI_MESSAGE` or the image tag, and run `make sync`. Then
+watch:
+
+```sh
+kubectl --context kind-k8s-labs -n podinfo get canary podinfo --watch
+kubectl --context kind-k8s-labs -n podinfo describe canary podinfo
+```
+
+Flagger starts the new version next to the old one and moves traffic to it
+through the weights of an `HTTPRoute`: 20%, 40%, 60%, one step every 30
+seconds. At each step it asks Prometheus for the error rate and the latency of
+the new version, as seen by the Gateway. If they stay within bounds the new
+version is promoted, in about four minutes; after five failed checks it is
+rolled back.
+
+To see a rollback, request errors while a release is in progress. They count
+against the new version only:
+
+```sh
+while true; do curl -s -o /dev/null http://podinfo.localhost:8080/status/500; done
+```
+
 To put a namespace in the mesh, label it `istio.io/dataplane-mode: ambient`.
 Its pods then talk mTLS through ztunnel, with no sidecars.
 
@@ -126,6 +155,10 @@ cluster-wide ones such as the Gateway API CRDs are under `kube-system`.
 | `metrics-server` | `kube-system/metrics-server` | The `metrics-server` chart, for `kubectl top` | |
 | `kube-prometheus-stack` | `observability/kube-prometheus-stack` | The chart, the Prometheus volume and the three `HTTPRoute`s | `cert-manager`, `ingress` |
 | `istio-monitoring` | `istio-system/istio`, directory `monitors/` | Monitors for istiod, ztunnel and the Gateways | `istio`, `kube-prometheus-stack` |
+| `flagger` | `flagger-system/flagger` | The `flagger` chart | `gateway-api`, `kube-prometheus-stack` |
+| `flagger-metrics` | `flagger-system/flagger`, directory `metrics/` | The `MetricTemplate`s a canary analysis can use | `flagger` |
+| `loadtester` | `flagger-system/loadtester` | The `loadtester` chart, which generates traffic during an analysis | |
+| `podinfo` | `podinfo/podinfo` | The demo Deployment and its `Canary` | `ingress`, `flagger-metrics`, `loadtester` |
 
 Custom resources go in a separate Kustomization from the chart that installs
 their CRDs, which is why the Istio monitors are a second Kustomization in the same
@@ -161,6 +194,15 @@ because it has to exist before Flux has anything to sync:
 - HTTP metrics such as `istio_requests_total` exist only for traffic that
   enters through the Gateway. Between ambient pods there is no waypoint yet,
   so ztunnel reports L4 metrics only (`istio_tcp_*`).
+- Flagger runs with the `gatewayapi:v1` provider, so a canary only depends on
+  `HTTPRoute`. What is specific to Istio are the queries in
+  `apps/flagger-system/flagger/metrics/istio.yaml`; another Gateway controller
+  needs its own.
+- A canary is judged only on traffic that enters through the Gateway, which is
+  why the load generator calls the Gateway and not the Service.
+- The `podinfo` Kustomization is Ready when its canary is `Initialized` or
+  `Succeeded`. After a rollback it reports the failure on the next `make sync`
+  until a release succeeds.
 - A route can answer 503 for a few seconds after its backend pod turns Ready.
 - The registry stores the artifact in an `emptyDir`. If its pod is replaced,
   the `OCIRepository` fails to fetch until you run `make sync` again.
@@ -173,7 +215,7 @@ because it has to exist before Flux has anything to sync:
 1. ~~kind, in-cluster registry, Flux Operator, `make sync`~~
 2. ~~Gateway API, Istio ambient and an ingress Gateway~~
 3. ~~kube-prometheus-stack, with cert-manager and metrics-server~~
-4. Flagger with a canary driven through the Gateway API
+4. ~~Flagger with a canary driven through the Gateway API~~
 5. Loki, Tempo and OpenTelemetry
 
 After that: Cilium as the CNI, LoadBalancer IPs and several Gateway API

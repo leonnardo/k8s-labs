@@ -41,3 +41,6 @@ spec:
   podMetricsEndpoints:
     - portNumber: 15020
       path: /stats/prometheus
+      # Flagger judges a canary on one-minute rates of these metrics, which
+      # need two samples before they return anything.
+      interval: 15s

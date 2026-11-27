@@ -1,0 +1,35 @@
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: OCIRepository
+metadata:
+  name: flagger
+  namespace: flagger-system
+spec:
+  interval: 1h
+  url: oci://ghcr.io/fluxcd/charts/flagger
+  ref:
+    tag: 1.45.0
+  layerSelector:
+    mediaType: application/vnd.cncf.helm.chart.content.v1.tar+gzip
+    operation: copy
+---
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: flagger
+  namespace: flagger-system
+spec:
+  interval: 1h
+  chartRef:
+    kind: OCIRepository
+    name: flagger
+  install:
+    crds: CreateReplace
+  upgrade:
+    crds: CreateReplace
+  values:
+    # Route traffic with Gateway API HTTPRoutes, whichever controller
+    # implements the Gateway.
+    meshProvider: gatewayapi:v1
+    metricsServer: http://kube-prometheus-stack-prometheus.observability:9090
+    podMonitor:
+      enabled: true
