@@ -1,0 +1,5 @@
+# Root of everything Flux reconciles. `make sync` packages this directory as an
+# OCI artifact and Flux applies whatever is listed here.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources: []

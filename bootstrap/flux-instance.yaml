@@ -1,0 +1,32 @@
+# Flux, installed and kept up to date by the Flux Operator.
+#
+# `sync` makes the operator generate an OCIRepository and a Kustomization, both
+# named flux-system, that reconcile the artifact pushed by `make sync`.
+apiVersion: fluxcd.controlplane.io/v1
+kind: FluxInstance
+metadata:
+  name: flux
+  namespace: flux-system
+spec:
+  distribution:
+    version: "2.10.x"
+    registry: ghcr.io/fluxcd
+  components:
+    - source-controller
+    - kustomize-controller
+    - helm-controller
+    - notification-controller
+  sync:
+    kind: OCIRepository
+    url: oci://registry.registry.svc.cluster.local:5000/k8s-labs
+    ref: latest
+    path: ./
+  kustomize:
+    patches:
+      # The in-cluster registry serves plain HTTP and `sync` has no field for it.
+      - target:
+          kind: OCIRepository
+        patch: |
+          - op: add
+            path: /spec/insecure
+            value: true
