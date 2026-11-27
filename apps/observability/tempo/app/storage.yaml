@@ -1,0 +1,19 @@
+# Tempo data, kept on the host like the Prometheus volume. Reserved for the
+# claim of the Tempo StatefulSet.
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: tempo
+spec:
+  capacity:
+    storage: 10Gi
+  accessModes:
+    - ReadWriteOnce
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: host
+  claimRef:
+    namespace: observability
+    name: storage-tempo-0
+  hostPath:
+    path: /var/lib/k8s-labs/tempo
+    type: Directory

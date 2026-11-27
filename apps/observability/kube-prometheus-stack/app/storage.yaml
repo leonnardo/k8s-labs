@@ -9,13 +9,11 @@ volumeBindingMode: WaitForFirstConsumer
 ---
 # Prometheus data, kept on the host under the directory that
 # bootstrap/kind.yaml mounts at /var/lib/k8s-labs. The claim that the operator
-# creates for Prometheus binds to this volume through the label.
+# creates for Prometheus is the only one that can bind to this volume.
 apiVersion: v1
 kind: PersistentVolume
 metadata:
   name: prometheus
-  labels:
-    k8s-labs/volume: prometheus
 spec:
   capacity:
     storage: 10Gi
@@ -23,6 +21,9 @@ spec:
     - ReadWriteOnce
   persistentVolumeReclaimPolicy: Retain
   storageClassName: host
+  claimRef:
+    namespace: observability
+    name: prometheus-kube-prometheus-stack-prometheus-db-prometheus-kube-prometheus-stack-prometheus-0
   hostPath:
     path: /var/lib/k8s-labs/prometheus
     type: Directory

@@ -3,3 +3,6 @@ kind: Kustomization
 resources:
   - namespace.yaml
   - kube-prometheus-stack/ks.yaml
+  - loki/ks.yaml
+  - tempo/ks.yaml
+  - opentelemetry-operator/ks.yaml

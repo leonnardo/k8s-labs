@@ -1,0 +1,20 @@
+# Trace storage. Queried through Grafana; the collector writes to it over OTLP.
+# Depends on kube-prometheus-stack for the `host` StorageClass and for Grafana,
+# which loads the datasource.
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: tempo
+  namespace: flux-system
+spec:
+  dependsOn:
+    - name: kube-prometheus-stack
+  interval: 1h
+  retryInterval: 1m
+  timeout: 10m
+  sourceRef:
+    kind: OCIRepository
+    name: flux-system
+  path: ./apps/observability/tempo/app
+  prune: true
+  wait: true

@@ -1,0 +1,73 @@
+# One collector per node. It tails the logs of every container and sends them
+# to Loki, and it receives traces over OTLP and sends them to Tempo. Senders
+# reach it through the Service otel-agent-collector.observability.
+apiVersion: opentelemetry.io/v1beta1
+kind: OpenTelemetryCollector
+metadata:
+  name: otel-agent
+  namespace: observability
+spec:
+  mode: daemonset
+  # The log files belong to root.
+  securityContext:
+    runAsUser: 0
+    runAsGroup: 0
+  volumes:
+    - name: pod-logs
+      hostPath:
+        path: /var/log/pods
+  volumeMounts:
+    - name: pod-logs
+      mountPath: /var/log/pods
+      readOnly: true
+  config:
+    receivers:
+      file_log:
+        include:
+          - /var/log/pods/*/*/*.log
+        # Its own logs would feed back into itself.
+        exclude:
+          - /var/log/pods/observability_otel-agent-collector-*/*/*.log
+        include_file_path: true
+        start_at: end
+        operators:
+          # Parses the containerd line format and reads namespace, pod and
+          # container from the file path.
+          - type: container
+      otlp:
+        protocols:
+          grpc:
+            endpoint: 0.0.0.0:4317
+          http:
+            endpoint: 0.0.0.0:4318
+    processors:
+      batch: {}
+      # Names the pod that sent each span, found by the address it connected
+      # from. Grafana uses it to go from a span to that pod's logs.
+      k8sattributes:
+        pod_association:
+          - sources:
+              - from: connection
+        extract:
+          metadata:
+            - k8s.namespace.name
+            - k8s.pod.name
+            - k8s.deployment.name
+            - k8s.node.name
+    exporters:
+      otlp_http/loki:
+        endpoint: http://loki.observability:3100/otlp
+      otlp_grpc/tempo:
+        endpoint: tempo.observability:4317
+        tls:
+          insecure: true
+    service:
+      pipelines:
+        logs:
+          receivers: [file_log]
+          processors: [batch]
+          exporters: [otlp_http/loki]
+        traces:
+          receivers: [otlp]
+          processors: [k8sattributes, batch]
+          exporters: [otlp_grpc/tempo]

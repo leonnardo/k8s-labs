@@ -3,10 +3,11 @@
 Local Kubernetes lab on [kind](https://kind.sigs.k8s.io/), built one layer at a
 time: Flux, Istio ambient, Flagger and observability.
 
-Four layers exist so far: a cluster where Flux reconciles whatever is in
+Five layers exist so far: a cluster where Flux reconciles whatever is in
 [`apps/`](apps) with no Git push in the loop, on top of it Istio in
 ambient mode with a Gateway reachable from the host, Prometheus, Alertmanager
-and Grafana watching all of it, and Flagger releasing a demo app as a canary.
+and Grafana watching all of it, Flagger releasing a demo app as a canary, and
+logs and traces collected with OpenTelemetry into Loki and Tempo.
 
 ## Requirements
 
@@ -30,6 +31,9 @@ Tested on macOS with OrbStack (the first two layers also on Linux) with:
 | kube-prometheus-stack | chart 94.1.0       |
 | Flagger       | 1.45.0, loadtester chart 0.39.0 |
 | podinfo       | 6.17.0                     |
+| Loki          | chart 21.6.2 (Loki 3.7)    |
+| Tempo         | chart 3.2.1 (Tempo 3.1)    |
+| OpenTelemetry Operator | chart 0.129.2, collector 0.162.0 |
 
 ## Usage
 
@@ -80,8 +84,18 @@ Prometheus picks up every `ServiceMonitor`, `PodMonitor`, `PrometheusRule`,
 `Probe` and `ScrapeConfig` in the cluster, from any namespace and with no
 label required.
 
-Its data is stored on the host, in `~/.local/share/k8s-labs/prometheus`, and
-survives `make down`. Delete that directory to start empty.
+Logs and traces are in Grafana's Explore view, under the Loki and Tempo
+datasources:
+
+- Logs of every container, labeled `k8s_namespace_name`, `k8s_pod_name` and
+  `k8s_container_name`. For example `{k8s_namespace_name="podinfo"}`.
+- A trace for every request that enters through the Gateway. Requests to
+  podinfo carry a second span from the app itself.
+- From a span, "Logs for this span" opens the logs of the pod that produced it.
+
+Metrics, logs and traces are stored on the host, in
+`~/.local/share/k8s-labs/{prometheus,loki,tempo}`, and survive `make down`.
+Delete a directory to start empty. Logs are kept for 7 days and traces for 3.
 
 ### Releasing a canary
 
@@ -159,6 +173,10 @@ cluster-wide ones such as the Gateway API CRDs are under `kube-system`.
 | `flagger-metrics` | `flagger-system/flagger`, directory `metrics/` | The `MetricTemplate`s a canary analysis can use | `flagger` |
 | `loadtester` | `flagger-system/loadtester` | The `loadtester` chart, which generates traffic during an analysis | |
 | `podinfo` | `podinfo/podinfo` | The demo Deployment and its `Canary` | `ingress`, `flagger-metrics`, `loadtester` |
+| `loki` | `observability/loki` | The `loki` chart as a single instance, its volume and its Grafana datasource | `kube-prometheus-stack` |
+| `tempo` | `observability/tempo` | The `tempo` chart, its volume and its Grafana datasource | `kube-prometheus-stack` |
+| `opentelemetry-operator` | `observability/opentelemetry-operator` | The `opentelemetry-operator` chart | `cert-manager` |
+| `otel-agent` | `observability/opentelemetry-operator`, directory `collector/` | A collector on every node: container logs to Loki, OTLP traces to Tempo | `opentelemetry-operator`, `loki`, `tempo` |
 
 Custom resources go in a separate Kustomization from the chart that installs
 their CRDs, which is why the Istio monitors are a second Kustomization in the same
@@ -203,6 +221,16 @@ because it has to exist before Flux has anything to sync:
 - The `podinfo` Kustomization is Ready when its canary is `Initialized` or
   `Succeeded`. After a rollback it reports the failure on the next `make sync`
   until a release succeeds.
+- Traces come from Envoy, so only from the Gateway: ztunnel does not trace,
+  and pod-to-pod traffic has no spans of its own until there is a waypoint.
+  An app that speaks OTLP can send to
+  `otel-agent-collector.observability:4317`, as podinfo does.
+- In istiod's `meshConfig`, `defaultProviders` replaces Istio's built-in
+  defaults. Listing only a tracing provider silently turns off
+  `istio_requests_total`, and every canary then fails for lack of metrics.
+- Volumes are static `hostPath` volumes of class `host`. Each one names the
+  claim it is for, since a claim without a selector would otherwise take any
+  of them.
 - A route can answer 503 for a few seconds after its backend pod turns Ready.
 - The registry stores the artifact in an `emptyDir`. If its pod is replaced,
   the `OCIRepository` fails to fetch until you run `make sync` again.
@@ -216,7 +244,7 @@ because it has to exist before Flux has anything to sync:
 2. ~~Gateway API, Istio ambient and an ingress Gateway~~
 3. ~~kube-prometheus-stack, with cert-manager and metrics-server~~
 4. ~~Flagger with a canary driven through the Gateway API~~
-5. Loki, Tempo and OpenTelemetry
+5. ~~Loki, Tempo and OpenTelemetry~~
 
 After that: Cilium as the CNI, LoadBalancer IPs and several Gateway API
 controllers side by side.

@@ -27,3 +27,21 @@ spec:
     name: istiod
   values:
     profile: ambient
+    # Envoy proxies (the Gateways; ztunnel does not trace) send a span for
+    # every request to the collector.
+    meshConfig:
+      enableTracing: true
+      extensionProviders:
+        - name: otel
+          opentelemetry:
+            service: otel-agent-collector.observability.svc.cluster.local
+            port: 4317
+      # Naming any default provider replaces the built-in defaults, so the
+      # Prometheus metrics that Flagger relies on have to be listed as well.
+      defaultProviders:
+        metrics:
+          - prometheus
+        tracing:
+          - otel
+    pilot:
+      traceSampling: 100

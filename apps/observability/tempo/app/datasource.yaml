@@ -1,0 +1,28 @@
+# Picked up by Grafana's sidecar through the label.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-datasource-tempo
+  namespace: observability
+  labels:
+    grafana_datasource: "1"
+data:
+  tempo.yaml: |
+    apiVersion: 1
+    datasources:
+      - name: Tempo
+        type: tempo
+        uid: tempo
+        access: proxy
+        url: http://tempo.observability:3200
+        jsonData:
+          # From a span, open the logs of the pod that produced it.
+          tracesToLogsV2:
+            datasourceUid: loki
+            spanStartTimeShift: -5m
+            spanEndTimeShift: 5m
+            tags:
+              - key: k8s.namespace.name
+                value: k8s_namespace_name
+              - key: k8s.pod.name
+                value: k8s_pod_name
