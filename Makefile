@@ -5,6 +5,10 @@ FLUX_OPERATOR_VERSION := 0.64.0
 # name has to match sync.url in bootstrap/flux-instance.yaml.
 ARTIFACT := oci://localhost:5050/k8s-labs:latest
 
+# Host directory mounted into the node (bootstrap/kind.yaml). PersistentVolumes
+# live here, so their data survives `make down`.
+DATA_DIR := $(HOME)/.local/share/k8s-labs
+
 # Every command names the kind context, so the lab never touches whatever
 # cluster the current kubeconfig context points at.
 CONTEXT := kind-$(CLUSTER)
@@ -31,8 +35,10 @@ down: ## Delete the cluster
 
 .PHONY: cluster
 cluster:
+	@mkdir -p $(DATA_DIR)/prometheus
 	@kind get clusters 2>/dev/null | grep -qx $(CLUSTER) \
-		|| kind create cluster --name $(CLUSTER) --config bootstrap/kind.yaml --wait 120s
+		|| sed 's|DATA_DIR|$(DATA_DIR)|' bootstrap/kind.yaml \
+		| kind create cluster --name $(CLUSTER) --config - --wait 120s
 
 .PHONY: registry
 registry:

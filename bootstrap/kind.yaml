@@ -13,3 +13,31 @@ nodes:
       - containerPort: 30080
         hostPort: 8080
         listenAddress: 127.0.0.1
+    extraMounts:
+      # Data that outlives the cluster. The Makefile replaces DATA_DIR with a
+      # directory on the host; PersistentVolumes point below the container path.
+      - hostPath: DATA_DIR
+        containerPath: /var/lib/k8s-labs
+# kubeadm binds the metrics endpoints of these components to localhost, where
+# Prometheus cannot reach them.
+kubeadmConfigPatches:
+  - |
+    apiVersion: kubeadm.k8s.io/v1beta4
+    kind: ClusterConfiguration
+    controllerManager:
+      extraArgs:
+        - name: bind-address
+          value: 0.0.0.0
+    scheduler:
+      extraArgs:
+        - name: bind-address
+          value: 0.0.0.0
+    etcd:
+      local:
+        extraArgs:
+          - name: listen-metrics-urls
+            value: http://0.0.0.0:2381
+  - |
+    apiVersion: kubeproxy.config.k8s.io/v1alpha1
+    kind: KubeProxyConfiguration
+    metricsBindAddress: 0.0.0.0:10249

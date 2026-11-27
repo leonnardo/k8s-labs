@@ -1,0 +1,35 @@
+# Prometheus Operator, Prometheus, Alertmanager, Grafana and the exporters.
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: kube-prometheus-stack
+  namespace: flux-system
+spec:
+  dependsOn:
+    # Certificate for the operator's admission webhook.
+    - name: cert-manager
+    # The HTTPRoutes attach to the ingress Gateway.
+    - name: ingress
+  interval: 1h
+  retryInterval: 1m
+  timeout: 15m
+  sourceRef:
+    kind: OCIRepository
+    name: flux-system
+  path: ./kube-prometheus-stack
+  prune: true
+  # The release is ready before the operator has created the Prometheus and
+  # Alertmanager pods, so those are checked too.
+  healthChecks:
+    - apiVersion: helm.toolkit.fluxcd.io/v2
+      kind: HelmRelease
+      name: kube-prometheus-stack
+      namespace: observability
+    - apiVersion: apps/v1
+      kind: StatefulSet
+      name: prometheus-kube-prometheus-stack-prometheus
+      namespace: observability
+    - apiVersion: apps/v1
+      kind: StatefulSet
+      name: alertmanager-kube-prometheus-stack-alertmanager
+      namespace: observability

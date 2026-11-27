@@ -3,17 +3,18 @@
 Local Kubernetes lab on [kind](https://kind.sigs.k8s.io/), built one layer at a
 time: Flux, Istio ambient, Flagger and observability.
 
-Two layers exist so far: a cluster where Flux reconciles whatever is in
-[`cluster/`](cluster) with no Git push in the loop, and on top of it Istio in
-ambient mode with a Gateway reachable from the host.
+Three layers exist so far: a cluster where Flux reconciles whatever is in
+[`cluster/`](cluster) with no Git push in the loop, on top of it Istio in
+ambient mode with a Gateway reachable from the host, and Prometheus,
+Alertmanager and Grafana watching all of it.
 
 ## Requirements
 
 Docker, `kind`, `kubectl`, `helm` and the `flux` CLI. Give Docker at least 4
-CPUs: the default CPU requests add up to about 2.3 cores, and on a 2-CPU
+CPUs: the default CPU requests add up to about 2.4 cores, and on a 2-CPU
 machine `istiod` stays Pending.
 
-Tested on Linux with:
+Tested on macOS with OrbStack (the first two layers also on Linux) with:
 
 | Component     | Version                    |
 | ------------- | -------------------------- |
@@ -24,6 +25,9 @@ Tested on Linux with:
 | Flux Operator | 0.64.0, installs Flux 2.10 |
 | Gateway API   | v1.6.1, standard channel   |
 | Istio         | 1.32.0, ambient mode       |
+| cert-manager  | v1.21.3                    |
+| metrics-server | chart 3.14.0              |
+| kube-prometheus-stack | chart 94.1.0       |
 
 ## Usage
 
@@ -62,6 +66,21 @@ spec:
           port: 80
 ```
 
+### Observability
+
+| URL                                  | What                         |
+| ------------------------------------ | ---------------------------- |
+| <http://grafana.localhost:8080>      | Grafana, no login, as admin  |
+| <http://prometheus.localhost:8080>   | Prometheus                   |
+| <http://alertmanager.localhost:8080> | Alertmanager, no receivers   |
+
+Prometheus picks up every `ServiceMonitor`, `PodMonitor`, `PrometheusRule`,
+`Probe` and `ScrapeConfig` in the cluster, from any namespace and with no
+label required.
+
+Its data is stored on the host, in `~/.local/share/k8s-labs/prometheus`, and
+survives `make down`. Delete that directory to start empty.
+
 To put a namespace in the mesh, label it `istio.io/dataplane-mode: ambient`.
 Its pods then talk mTLS through ztunnel, with no sidecars.
 
@@ -91,6 +110,15 @@ waits for the one before it:
 | `gateway-api` | Gateway API CRDs, fetched from upstream at a tag      |               |
 | `istio`       | `istio-base`, `istiod`, `istio-cni`, `ztunnel` charts | `gateway-api` |
 | `ingress`     | The `ingress` Gateway in `istio-ingress`              | `istio`       |
+| `cert-manager` | The `cert-manager` chart                             |               |
+| `metrics-server` | The `metrics-server` chart, for `kubectl top`      |               |
+| `kube-prometheus-stack` | The chart, the Prometheus volume and the three `HTTPRoute`s | `cert-manager`, `ingress` |
+| `istio-monitoring` | Monitors for istiod, ztunnel and the Gateways    | `istio`, `kube-prometheus-stack` |
+
+Custom resources go in a separate Kustomization from the chart that installs
+their CRDs, which is why the Istio monitors are not in `istio`. Flux validates
+everything in a Kustomization before applying any of it, and a `PodMonitor`
+next to the release that brings its CRD would never pass.
 
 Istio deploys an Envoy for the Gateway and exposes it as a NodePort, which
 `bootstrap/kind.yaml` maps to `localhost:8080`.
@@ -102,7 +130,7 @@ because it has to exist before Flux has anything to sync:
 
 | File                 | What it is                                        |
 | -------------------- | ------------------------------------------------- |
-| `kind.yaml`          | Cluster definition and the host port mappings     |
+| `kind.yaml`          | Cluster definition, host port mappings, the data mount and the control-plane metrics endpoints |
 | `registry.yaml`      | The in-cluster registry                           |
 | `flux-instance.yaml` | Flux version, components and where it syncs from  |
 
@@ -112,8 +140,15 @@ because it has to exist before Flux has anything to sync:
   Kustomizations pick up the new artifact right after and reconcile on their
   own; follow them with
   `flux --context kind-k8s-labs get kustomizations --watch`.
-- Port mappings in `bootstrap/kind.yaml` only take effect when the cluster is
-  created. After changing them, run `make down` and `make up`.
+- `bootstrap/kind.yaml` only takes effect when the cluster is created. After
+  changing it, run `make down` and `make up`.
+- kubeadm binds the metrics of etcd, the scheduler, the controller manager and
+  kube-proxy to localhost. `bootstrap/kind.yaml` moves them to `0.0.0.0` so
+  that Prometheus can scrape them.
+- HTTP metrics such as `istio_requests_total` exist only for traffic that
+  enters through the Gateway. Between ambient pods there is no waypoint yet,
+  so ztunnel reports L4 metrics only (`istio_tcp_*`).
+- A route can answer 503 for a few seconds after its backend pod turns Ready.
 - The registry stores the artifact in an `emptyDir`. If its pod is replaced,
   the `OCIRepository` fails to fetch until you run `make sync` again.
 - The registry speaks plain HTTP, which is why the `FluxInstance` patches the
@@ -124,7 +159,7 @@ because it has to exist before Flux has anything to sync:
 
 1. ~~kind, in-cluster registry, Flux Operator, `make sync`~~
 2. ~~Gateway API, Istio ambient and an ingress Gateway~~
-3. kube-prometheus-stack
+3. ~~kube-prometheus-stack, with cert-manager and metrics-server~~
 4. Flagger with a canary driven through the Gateway API
 5. Loki, Tempo and OpenTelemetry
 

@@ -9,3 +9,7 @@ resources:
   - gateway-api.yaml
   - istio.yaml
   - ingress.yaml
+  - cert-manager.yaml
+  - metrics-server.yaml
+  - kube-prometheus-stack.yaml
+  - istio-monitoring.yaml
