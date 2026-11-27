@@ -25,8 +25,9 @@ spec:
     - portNumber: 15020
       path: /stats/prometheus
 ---
-# HTTP metrics for traffic that enters through a Gateway. Matches the Envoy
-# of every Gateway that Istio manages, in any namespace.
+# HTTP metrics for traffic that enters through a Gateway or passes through a
+# waypoint. Matches the Envoy of every Gateway that Istio manages, in any
+# namespace.
 apiVersion: monitoring.coreos.com/v1
 kind: PodMonitor
 metadata:
@@ -36,8 +37,12 @@ spec:
   namespaceSelector:
     any: true
   selector:
-    matchLabels:
-      gateway.istio.io/managed: istio.io-gateway-controller
+    matchExpressions:
+      - key: gateway.istio.io/managed
+        operator: In
+        values:
+          - istio.io-gateway-controller
+          - istio.io-mesh-controller
   podMetricsEndpoints:
     - portNumber: 15020
       path: /stats/prometheus

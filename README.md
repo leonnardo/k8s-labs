@@ -12,7 +12,7 @@ logs and traces collected with OpenTelemetry into Loki and Tempo.
 ## Requirements
 
 Docker, `kind`, `kubectl`, `helm` and the `flux` CLI. Give Docker at least 4
-CPUs: the default CPU requests add up to about 2.4 cores, and on a 2-CPU
+CPUs: the default CPU requests add up to about 2.5 cores, and on a 2-CPU
 machine `istiod` stays Pending.
 
 Tested on macOS with OrbStack (the first two layers also on Linux) with:
@@ -89,8 +89,9 @@ datasources:
 
 - Logs of every container, labeled `k8s_namespace_name`, `k8s_pod_name` and
   `k8s_container_name`. For example `{k8s_namespace_name="podinfo"}`.
-- A trace for every request that enters through the Gateway. Requests to
-  podinfo carry a second span from the app itself.
+- A trace for every request that enters through the Gateway or passes
+  through a waypoint. Requests to podinfo carry a second span from the app
+  itself.
 - From a span, "Logs for this span" opens the logs of the pod that produced it.
 
 Metrics, logs and traces are stored on the host, in
@@ -117,6 +118,10 @@ the new version, as seen by the Gateway. If they stay within bounds the new
 version is promoted, in about four minutes; after five failed checks it is
 rolled back.
 
+The same weights apply to requests from inside the mesh to
+`podinfo.podinfo:9898`, because the route is also attached to that Service and
+the namespace has a waypoint.
+
 To see a rollback, request errors while a release is in progress. They count
 against the new version only:
 
@@ -126,6 +131,11 @@ while true; do curl -s -o /dev/null http://podinfo.localhost:8080/status/500; do
 
 To put a namespace in the mesh, label it `istio.io/dataplane-mode: ambient`.
 Its pods then talk mTLS through ztunnel, with no sidecars.
+
+ztunnel only handles TCP. For HTTP metrics, traces and routing between pods, a
+namespace needs a waypoint: a `Gateway` of class `istio-waypoint` and the
+label `istio.io/use-waypoint` on the namespace, as in
+[`apps/podinfo`](apps/podinfo). Only `podinfo` has one.
 
 ## How it works
 
@@ -168,11 +178,12 @@ cluster-wide ones such as the Gateway API CRDs are under `kube-system`.
 | `cert-manager` | `cert-manager/cert-manager` | The `cert-manager` chart | |
 | `metrics-server` | `kube-system/metrics-server` | The `metrics-server` chart, for `kubectl top` | |
 | `kube-prometheus-stack` | `observability/kube-prometheus-stack` | The chart, the Prometheus volume and the three `HTTPRoute`s | `cert-manager`, `ingress` |
-| `istio-monitoring` | `istio-system/istio`, directory `monitors/` | Monitors for istiod, ztunnel and the Gateways | `istio`, `kube-prometheus-stack` |
+| `istio-monitoring` | `istio-system/istio`, directory `monitors/` | Monitors for istiod, ztunnel, the Gateways and the waypoints | `istio`, `kube-prometheus-stack` |
 | `flagger` | `flagger-system/flagger` | The `flagger` chart | `gateway-api`, `kube-prometheus-stack` |
 | `flagger-metrics` | `flagger-system/flagger`, directory `metrics/` | The `MetricTemplate`s a canary analysis can use | `flagger` |
 | `loadtester` | `flagger-system/loadtester` | The `loadtester` chart, which generates traffic during an analysis | |
-| `podinfo` | `podinfo/podinfo` | The demo Deployment and its `Canary` | `ingress`, `flagger-metrics`, `loadtester` |
+| `podinfo-waypoint` | `podinfo/waypoint` | The waypoint of the `podinfo` namespace | `istio` |
+| `podinfo` | `podinfo/podinfo` | The demo Deployment and its `Canary` | `ingress`, `podinfo-waypoint`, `flagger-metrics`, `loadtester` |
 | `loki` | `observability/loki` | The `loki` chart as a single instance, its volume and its Grafana datasource | `kube-prometheus-stack` |
 | `tempo` | `observability/tempo` | The `tempo` chart, its volume and its Grafana datasource | `kube-prometheus-stack` |
 | `opentelemetry-operator` | `observability/opentelemetry-operator` | The `opentelemetry-operator` chart | `cert-manager` |
@@ -209,9 +220,13 @@ because it has to exist before Flux has anything to sync:
 - kubeadm binds the metrics of etcd, the scheduler, the controller manager and
   kube-proxy to localhost. `bootstrap/kind.yaml` moves them to `0.0.0.0` so
   that Prometheus can scrape them.
-- HTTP metrics such as `istio_requests_total` exist only for traffic that
-  enters through the Gateway. Between ambient pods there is no waypoint yet,
-  so ztunnel reports L4 metrics only (`istio_tcp_*`).
+- HTTP metrics such as `istio_requests_total` exist for traffic that enters
+  through the Gateway (`reporter="source"`) and for traffic to a Service of a
+  namespace with a waypoint (`reporter="waypoint"`). Elsewhere ztunnel
+  reports L4 metrics only (`istio_tcp_*`).
+- Traffic from the Gateway goes straight to the pods and skips the waypoint.
+  Istio sends it through the waypoint only for a Service labeled
+  `istio.io/ingress-use-waypoint`, which the lab does not set.
 - Flagger runs with the `gatewayapi:v1` provider, so a canary only depends on
   `HTTPRoute`. What is specific to Istio are the queries in
   `apps/flagger-system/flagger/metrics/istio.yaml`; another Gateway controller
@@ -221,8 +236,9 @@ because it has to exist before Flux has anything to sync:
 - The `podinfo` Kustomization is Ready when its canary is `Initialized` or
   `Succeeded`. After a rollback it reports the failure on the next `make sync`
   until a release succeeds.
-- Traces come from Envoy, so only from the Gateway: ztunnel does not trace,
-  and pod-to-pod traffic has no spans of its own until there is a waypoint.
+- Traces come from Envoy, so from the Gateway and the waypoints. ztunnel
+  does not trace, and pod-to-pod traffic in a namespace with no waypoint has
+  no spans of its own.
   An app that speaks OTLP can send to
   `otel-agent-collector.observability:4317`, as podinfo does.
 - In istiod's `meshConfig`, `defaultProviders` replaces Istio's built-in
@@ -245,6 +261,7 @@ because it has to exist before Flux has anything to sync:
 3. ~~kube-prometheus-stack, with cert-manager and metrics-server~~
 4. ~~Flagger with a canary driven through the Gateway API~~
 5. ~~Loki, Tempo and OpenTelemetry~~
+6. ~~A waypoint for podinfo, so that the canary also applies inside the mesh~~
 
 After that: Cilium as the CNI, LoadBalancer IPs and several Gateway API
 controllers side by side.

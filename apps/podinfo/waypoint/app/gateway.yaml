@@ -1,0 +1,14 @@
+# ztunnel only sees TCP. Traffic to the Services of this namespace goes through
+# this Envoy instead, which adds HTTP metrics, traces and routing. The
+# namespace opts in with the label istio.io/use-waypoint.
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  name: waypoint
+  namespace: podinfo
+spec:
+  gatewayClassName: istio-waypoint
+  listeners:
+    - name: mesh
+      port: 15008
+      protocol: HBONE

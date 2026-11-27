@@ -4,3 +4,6 @@ metadata:
   name: podinfo
   labels:
     istio.io/dataplane-mode: ambient
+    # Send traffic for this namespace's Services through the waypoint in
+    # waypoint/app/gateway.yaml.
+    istio.io/use-waypoint: waypoint

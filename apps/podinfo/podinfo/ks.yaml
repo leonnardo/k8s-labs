@@ -7,6 +7,7 @@ metadata:
 spec:
   dependsOn:
     - name: ingress
+    - name: podinfo-waypoint
     - name: flagger-metrics
     - name: loadtester
   interval: 1h
