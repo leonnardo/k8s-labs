@@ -1,0 +1,39 @@
+# Istio in ambient mode. Ready once all four Helm releases are.
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: istio
+  namespace: flux-system
+spec:
+  dependsOn:
+    - name: gateway-api
+  interval: 1h
+  retryInterval: 1m
+  timeout: 10m
+  sourceRef:
+    kind: OCIRepository
+    name: flux-system
+  path: ./apps/istio-system/istio/app
+  prune: true
+  wait: true
+---
+# Scrape targets for Istio. A separate Kustomization because the monitor CRDs
+# only exist once kube-prometheus-stack is installed.
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: istio-monitoring
+  namespace: flux-system
+spec:
+  dependsOn:
+    - name: istio
+    - name: kube-prometheus-stack
+  interval: 1h
+  retryInterval: 1m
+  timeout: 5m
+  sourceRef:
+    kind: OCIRepository
+    name: flux-system
+  path: ./apps/istio-system/istio/monitors
+  prune: true
+  wait: true

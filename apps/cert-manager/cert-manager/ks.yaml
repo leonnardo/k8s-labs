@@ -1,8 +1,8 @@
-# Resource metrics API: `kubectl top` and the HorizontalPodAutoscaler.
+# Issues the certificates that admission webhooks need.
 apiVersion: kustomize.toolkit.fluxcd.io/v1
 kind: Kustomization
 metadata:
-  name: metrics-server
+  name: cert-manager
   namespace: flux-system
 spec:
   interval: 1h
@@ -11,6 +11,6 @@ spec:
   sourceRef:
     kind: OCIRepository
     name: flux-system
-  path: ./metrics-server
+  path: ./apps/cert-manager/cert-manager/app
   prune: true
   wait: true

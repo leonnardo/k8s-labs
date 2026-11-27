@@ -4,7 +4,7 @@ Local Kubernetes lab on [kind](https://kind.sigs.k8s.io/), built one layer at a
 time: Flux, Istio ambient, Flagger and observability.
 
 Three layers exist so far: a cluster where Flux reconciles whatever is in
-[`cluster/`](cluster) with no Git push in the loop, on top of it Istio in
+[`apps/`](apps) with no Git push in the loop, on top of it Istio in
 ambient mode with a Gateway reachable from the host, and Prometheus,
 Alertmanager and Grafana watching all of it.
 
@@ -33,11 +33,11 @@ Tested on macOS with OrbStack (the first two layers also on Linux) with:
 
 ```sh
 make up     # create the cluster and wait until every layer is ready
-make sync   # push ./cluster and have Flux reconcile it now
+make sync   # push ./apps and ./clusters and have Flux reconcile them now
 make down   # delete the cluster
 ```
 
-The loop is: edit files under `cluster/`, run `make sync`, watch Flux apply
+The loop is: edit files under `apps/`, run `make sync`, watch Flux apply
 them. Nothing has to be committed first.
 
 Every command names the `kind-k8s-labs` context explicitly, so the lab never
@@ -87,36 +87,49 @@ Its pods then talk mTLS through ztunnel, with no sidecars.
 ## How it works
 
 ```
-cluster/ ── make sync ──> registry (in the cluster) ──> Flux ──> cluster state
+apps/ + clusters/ ── make sync ──> registry (in the cluster) ──> Flux ──> cluster state
             flux push artifact        OCIRepository + Kustomization
 ```
 
-- `make sync` packages `cluster/` as an OCI artifact and pushes it to a registry
+- `make sync` packages `apps/` and `clusters/` as an OCI artifact and pushes it to a registry
   that runs inside the cluster, exposed to the host on `localhost:5050`.
 - The `FluxInstance` tells the Flux Operator to generate an `OCIRepository` and
   a `Kustomization`, both named `flux-system`, that pull that artifact through
   the in-cluster Service and apply it with pruning.
-- Flux tracks the artifact digest. The digest only changes when `cluster/` or
+- Flux tracks the artifact digest. The digest only changes when those directories or
   `HEAD` changes, so repeating `make sync` is a no-op.
 
 ### What Flux reconciles
 
-[`cluster/kustomization.yaml`](cluster/kustomization.yaml) lists one Flux
-`Kustomization` per component. Each applies the directory of the same name and
-waits for the one before it:
+```
+clusters/k8s-labs/kustomization.yaml    # the namespaces this cluster runs
+apps/<namespace>/
+  kustomization.yaml                    # the namespace and its apps
+  namespace.yaml
+  <app>/
+    ks.yaml                             # Flux Kustomization(s) for the app
+    app/                                # what the Kustomization applies
+```
 
-| Kustomization | Applies                                               | Depends on    |
-| ------------- | ----------------------------------------------------- | ------------- |
-| `gateway-api` | Gateway API CRDs, fetched from upstream at a tag      |               |
-| `istio`       | `istio-base`, `istiod`, `istio-cni`, `ztunnel` charts | `gateway-api` |
-| `ingress`     | The `ingress` Gateway in `istio-ingress`              | `istio`       |
-| `cert-manager` | The `cert-manager` chart                             |               |
-| `metrics-server` | The `metrics-server` chart, for `kubectl top`      |               |
-| `kube-prometheus-stack` | The chart, the Prometheus volume and the three `HTTPRoute`s | `cert-manager`, `ingress` |
-| `istio-monitoring` | Monitors for istiod, ztunnel and the Gateways    | `istio`, `kube-prometheus-stack` |
+Flux applies [`clusters/k8s-labs`](clusters/k8s-labs/kustomization.yaml), which
+creates the namespaces and every `ks.yaml`. Each `ks.yaml` is a Flux
+`Kustomization` that applies the `app/` directory next to it and waits for the
+ones it depends on. An app is filed under the namespace it installs into;
+cluster-wide ones such as the Gateway API CRDs are under `kube-system`.
+
+| Kustomization | In | Applies | Depends on |
+| --- | --- | --- | --- |
+| `gateway-api` | `kube-system/gateway-api` | Gateway API CRDs, fetched from upstream at a tag | |
+| `istio` | `istio-system/istio` | `istio-base`, `istiod`, `istio-cni`, `ztunnel` charts | `gateway-api` |
+| `ingress` | `istio-ingress/ingress` | The `ingress` Gateway | `istio` |
+| `cert-manager` | `cert-manager/cert-manager` | The `cert-manager` chart | |
+| `metrics-server` | `kube-system/metrics-server` | The `metrics-server` chart, for `kubectl top` | |
+| `kube-prometheus-stack` | `observability/kube-prometheus-stack` | The chart, the Prometheus volume and the three `HTTPRoute`s | `cert-manager`, `ingress` |
+| `istio-monitoring` | `istio-system/istio`, directory `monitors/` | Monitors for istiod, ztunnel and the Gateways | `istio`, `kube-prometheus-stack` |
 
 Custom resources go in a separate Kustomization from the chart that installs
-their CRDs, which is why the Istio monitors are not in `istio`. Flux validates
+their CRDs, which is why the Istio monitors are a second Kustomization in the same
+`ks.yaml`, with their own directory. Flux validates
 everything in a Kustomization before applying any of it, and a `PodMonitor`
 next to the release that brings its CRD would never pass.
 

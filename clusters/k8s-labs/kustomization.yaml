@@ -1,0 +1,11 @@
+# What this cluster runs: one entry per namespace under apps/. Flux applies
+# this directory, which creates the namespaces and one Flux Kustomization per
+# app; those then apply each app in the order set by their dependsOn.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - ../../apps/cert-manager
+  - ../../apps/istio-ingress
+  - ../../apps/istio-system
+  - ../../apps/kube-system
+  - ../../apps/observability

@@ -9,7 +9,7 @@ nodes:
       - containerPort: 30500
         hostPort: 5050
         listenAddress: 127.0.0.1
-      # Ingress Gateway (cluster/ingress/gateway.yaml): http://<name>.localhost:8080
+      # Ingress Gateway (apps/istio-ingress/ingress/app/gateway.yaml): http://<name>.localhost:8080
       - containerPort: 30080
         hostPort: 8080
         listenAddress: 127.0.0.1

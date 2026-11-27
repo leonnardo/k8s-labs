@@ -23,10 +23,10 @@ help: ## List the targets
 	@awk -F ':.*## ' '/^[a-z-]+:.*## / {printf "  %-10s %s\n", $$1, $$2}' $(MAKEFILE_LIST)
 
 .PHONY: up
-up: cluster registry push flux ## Create the cluster and bootstrap Flux from ./cluster
+up: cluster registry push flux ## Create the cluster and bootstrap Flux from ./clusters
 
 .PHONY: sync
-sync: push ## Push ./cluster and have Flux reconcile it now
+sync: push ## Push ./apps and ./clusters and have Flux reconcile them now
 	$(FLUX) reconcile kustomization flux-system --with-source
 
 .PHONY: down
@@ -47,11 +47,13 @@ registry:
 
 # Flux tracks the artifact digest, so uncommitted changes are picked up too;
 # --revision only records which commit the working tree was based on.
-# --reproducible keeps the digest stable while ./cluster and HEAD are unchanged.
+# --reproducible keeps the digest stable while the manifests and HEAD are
+# unchanged. Only ./apps and ./clusters go into the artifact.
 .PHONY: push
 push:
 	flux push artifact $(ARTIFACT) \
-		--path=./cluster \
+		--path=. \
+		--ignore-paths="/*,!/apps/,!/clusters/" \
 		--source="$$(git config --get remote.origin.url)" \
 		--revision="$$(git branch --show-current)@sha1:$$(git rev-parse HEAD)" \
 		--reproducible \
