@@ -1,0 +1,43 @@
+# Control plane.
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: istiod
+  namespace: istio-system
+spec:
+  selector:
+    matchLabels:
+      istio: pilot
+  endpoints:
+    - port: http-monitoring
+---
+# L4 metrics for traffic between ambient pods.
+apiVersion: monitoring.coreos.com/v1
+kind: PodMonitor
+metadata:
+  name: ztunnel
+  namespace: istio-system
+spec:
+  selector:
+    matchLabels:
+      app: ztunnel
+  podMetricsEndpoints:
+    - portNumber: 15020
+      path: /stats/prometheus
+---
+# HTTP metrics for traffic that enters through a Gateway. Matches the Envoy
+# of every Gateway that Istio manages, in any namespace.
+apiVersion: monitoring.coreos.com/v1
+kind: PodMonitor
+metadata:
+  name: gateways
+  namespace: istio-system
+spec:
+  namespaceSelector:
+    any: true
+  selector:
+    matchLabels:
+      gateway.istio.io/managed: istio.io-gateway-controller
+  podMetricsEndpoints:
+    - portNumber: 15020
+      path: /stats/prometheus
