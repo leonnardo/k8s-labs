@@ -1,0 +1,33 @@
+# The community chart. grafana/helm-charts/tempo is deprecated.
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: OCIRepository
+metadata:
+  name: tempo
+  namespace: observability
+spec:
+  interval: 1h
+  url: oci://ghcr.io/grafana-community/helm-charts/tempo
+  ref:
+    tag: 3.2.1
+  layerSelector:
+    mediaType: application/vnd.cncf.helm.chart.content.v1.tar+gzip
+    operation: copy
+---
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: tempo
+  namespace: observability
+spec:
+  interval: 1h
+  chartRef:
+    kind: OCIRepository
+    name: tempo
+  values:
+    tempo:
+      retention: 72h
+      reportingEnabled: false
+    persistence:
+      enabled: true
+      storageClassName: host
+      size: 10Gi

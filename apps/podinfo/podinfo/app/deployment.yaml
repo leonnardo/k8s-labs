@@ -25,6 +25,12 @@ spec:
           env:
             - name: PODINFO_UI_MESSAGE
               value: hello from k8s-labs
+            # Send a span per request, continuing the trace that the
+            # Gateway started.
+            - name: PODINFO_OTEL_SERVICE_NAME
+              value: podinfo
+            - name: OTEL_EXPORTER_OTLP_TRACES_ENDPOINT
+              value: http://otel-agent-collector.observability:4317
           readinessProbe:
             httpGet:
               path: /readyz

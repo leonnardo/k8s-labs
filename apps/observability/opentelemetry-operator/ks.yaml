@@ -1,0 +1,41 @@
+# Runs OpenTelemetry Collectors described by OpenTelemetryCollector resources.
+# cert-manager issues the certificate of its admission webhook.
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: opentelemetry-operator
+  namespace: flux-system
+spec:
+  dependsOn:
+    - name: cert-manager
+  interval: 1h
+  retryInterval: 1m
+  timeout: 10m
+  sourceRef:
+    kind: OCIRepository
+    name: flux-system
+  path: ./apps/observability/opentelemetry-operator/app
+  prune: true
+  wait: true
+---
+# The collector itself. A separate Kustomization because its CRD comes with
+# the operator release.
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: otel-agent
+  namespace: flux-system
+spec:
+  dependsOn:
+    - name: opentelemetry-operator
+    - name: loki
+    - name: tempo
+  interval: 1h
+  retryInterval: 1m
+  timeout: 10m
+  sourceRef:
+    kind: OCIRepository
+    name: flux-system
+  path: ./apps/observability/opentelemetry-operator/collector
+  prune: true
+  wait: true

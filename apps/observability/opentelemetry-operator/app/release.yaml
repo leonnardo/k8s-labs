@@ -1,0 +1,33 @@
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: OCIRepository
+metadata:
+  name: opentelemetry-operator
+  namespace: observability
+spec:
+  interval: 1h
+  url: oci://ghcr.io/open-telemetry/opentelemetry-helm-charts/opentelemetry-operator
+  ref:
+    tag: 0.129.2
+  layerSelector:
+    mediaType: application/vnd.cncf.helm.chart.content.v1.tar+gzip
+    operation: copy
+---
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: opentelemetry-operator
+  namespace: observability
+spec:
+  interval: 1h
+  chartRef:
+    kind: OCIRepository
+    name: opentelemetry-operator
+  install:
+    crds: CreateReplace
+  upgrade:
+    crds: CreateReplace
+  values:
+    manager:
+      collectorImage:
+        # The contrib distribution has the filelog receiver.
+        repository: ghcr.io/open-telemetry/opentelemetry-collector-releases/opentelemetry-collector-contrib

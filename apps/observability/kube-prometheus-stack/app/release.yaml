@@ -48,9 +48,6 @@ spec:
               storageClassName: host
               accessModes:
                 - ReadWriteOnce
-              selector:
-                matchLabels:
-                  k8s-labs/volume: prometheus
               resources:
                 requests:
                   storage: 10Gi

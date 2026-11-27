@@ -1,0 +1,19 @@
+# Loki data, kept on the host like the Prometheus volume. Reserved for the
+# claim of the Loki StatefulSet.
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: loki
+spec:
+  capacity:
+    storage: 10Gi
+  accessModes:
+    - ReadWriteOnce
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: host
+  claimRef:
+    namespace: observability
+    name: storage-loki-0
+  hostPath:
+    path: /var/lib/k8s-labs/loki
+    type: Directory

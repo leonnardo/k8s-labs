@@ -35,7 +35,7 @@ down: ## Delete the cluster
 
 .PHONY: cluster
 cluster:
-	@mkdir -p $(DATA_DIR)/prometheus
+	@mkdir -p $(DATA_DIR)/prometheus $(DATA_DIR)/loki $(DATA_DIR)/tempo
 	@kind get clusters 2>/dev/null | grep -qx $(CLUSTER) \
 		|| sed 's|DATA_DIR|$(DATA_DIR)|' bootstrap/kind.yaml \
 		| kind create cluster --name $(CLUSTER) --config - --wait 120s
