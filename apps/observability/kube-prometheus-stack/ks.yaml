@@ -16,7 +16,7 @@ spec:
   sourceRef:
     kind: OCIRepository
     name: flux-system
-  path: ./kube-prometheus-stack
+  path: ./apps/observability/kube-prometheus-stack/app
   prune: true
   # The release is ready before the operator has created the Prometheus and
   # Alertmanager pods, so those are checked too.
