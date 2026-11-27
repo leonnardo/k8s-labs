@@ -1,0 +1,11 @@
+# kind cluster for the lab. The cluster name comes from the Makefile.
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+nodes:
+  - role: control-plane
+    extraPortMappings:
+      # In-cluster registry (bootstrap/registry.yaml), where `make sync` pushes.
+      # Host port 5050 because macOS AirPlay Receiver holds 5000.
+      - containerPort: 30500
+        hostPort: 5050
+        listenAddress: 127.0.0.1
