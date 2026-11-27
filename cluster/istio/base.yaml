@@ -1,0 +1,25 @@
+# Istio CRDs and cluster-wide resources.
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: OCIRepository
+metadata:
+  name: istio-base
+  namespace: istio-system
+spec:
+  interval: 1h
+  url: oci://ghcr.io/istio/release/charts/base
+  ref:
+    tag: 1.32.0
+  layerSelector:
+    mediaType: application/vnd.cncf.helm.chart.content.v1.tar+gzip
+    operation: copy
+---
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: istio-base
+  namespace: istio-system
+spec:
+  interval: 1h
+  chartRef:
+    kind: OCIRepository
+    name: istio-base

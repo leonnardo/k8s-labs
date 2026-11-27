@@ -60,3 +60,4 @@ flux:
 	$(KUBECTL) apply -f bootstrap/flux-instance.yaml
 	$(KUBECTL) -n flux-system wait fluxinstance/flux --for=condition=Ready --timeout=5m
 	$(KUBECTL) -n flux-system wait kustomization/flux-system --for=condition=Ready --timeout=2m
+	$(KUBECTL) -n flux-system wait kustomization --all --for=condition=Ready --timeout=15m

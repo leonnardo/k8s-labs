@@ -1,0 +1,29 @@
+# Control plane.
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: OCIRepository
+metadata:
+  name: istiod
+  namespace: istio-system
+spec:
+  interval: 1h
+  url: oci://ghcr.io/istio/release/charts/istiod
+  ref:
+    tag: 1.32.0
+  layerSelector:
+    mediaType: application/vnd.cncf.helm.chart.content.v1.tar+gzip
+    operation: copy
+---
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: istiod
+  namespace: istio-system
+spec:
+  interval: 1h
+  dependsOn:
+    - name: istio-base
+  chartRef:
+    kind: OCIRepository
+    name: istiod
+  values:
+    profile: ambient

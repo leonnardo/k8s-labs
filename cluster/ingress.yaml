@@ -1,0 +1,24 @@
+# The Gateway that receives traffic from the host on localhost:8080.
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: ingress
+  namespace: flux-system
+spec:
+  dependsOn:
+    - name: istio
+  interval: 1h
+  retryInterval: 1m
+  timeout: 5m
+  sourceRef:
+    kind: OCIRepository
+    name: flux-system
+  path: ./ingress
+  prune: true
+  # Flux sees a Gateway as ready as soon as it is applied. What has to be up
+  # is the Envoy that Istio deploys for it.
+  healthChecks:
+    - apiVersion: apps/v1
+      kind: Deployment
+      name: ingress-istio
+      namespace: istio-ingress
