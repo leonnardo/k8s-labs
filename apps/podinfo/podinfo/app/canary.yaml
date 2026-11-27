@@ -1,5 +1,7 @@
 # Flagger creates the Services podinfo, podinfo-primary and podinfo-canary and
-# an HTTPRoute on the ingress Gateway that splits traffic between the last two.
+# an HTTPRoute that splits traffic between the last two. The route is attached
+# to the ingress Gateway, for requests from outside, and to the Service
+# podinfo, for requests from inside the mesh, which the waypoint handles.
 apiVersion: flagger.app/v1beta1
 kind: Canary
 metadata:
@@ -18,6 +20,11 @@ spec:
     gatewayRefs:
       - name: ingress
         namespace: istio-ingress
+      - group: ""
+        kind: Service
+        name: podinfo
+        namespace: podinfo
+        port: 9898
   analysis:
     # Every 30s, move 20% more traffic to the new version, up to 60%, then
     # promote it. Five failed checks roll it back; the first check or two
