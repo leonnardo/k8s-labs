@@ -36,6 +36,14 @@ l7Proxy: false
 envoy:
   enabled: false
 
+# Services of type LoadBalancer get an address from the pool in
+# bootstrap/lb-pool.yaml, and the node answers ARP for it on the Docker
+# network (policies/l2-announcements.yaml).
+l2announcements:
+  enabled: true
+externalIPs:
+  enabled: true
+
 prometheus:
   enabled: true
 

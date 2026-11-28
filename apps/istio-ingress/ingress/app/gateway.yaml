@@ -21,8 +21,9 @@ spec:
         namespaces:
           from: All
 ---
-# kind has no LoadBalancer, so the Service is a NodePort on the port that
-# bootstrap/kind.yaml maps to localhost:8080.
+# The Service is a LoadBalancer, which gets an address from Cilium. Its node
+# port is pinned to the one that bootstrap/kind.yaml maps to localhost:8080,
+# which works on every Docker, also where the host cannot reach that address.
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -31,7 +32,7 @@ metadata:
 data:
   service: |
     spec:
-      type: NodePort
+      type: LoadBalancer
       ports:
         - port: 80
           nodePort: 30080

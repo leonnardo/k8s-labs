@@ -54,10 +54,10 @@ touches the cluster your current kubeconfig context points at.
 
 A second lab can run next to the first one, for example to try a change
 without touching the cluster you rely on. Give it a name and its own host
-ports, and pass the same variables to every target:
+ports and LoadBalancer addresses, and pass the same variables to every target:
 
 ```sh
-make up   CLUSTER=k8s-labs-2 HTTP_PORT=8081 REGISTRY_PORT=5051
+make up   CLUSTER=k8s-labs-2 HTTP_PORT=8081 REGISTRY_PORT=5051 LB_POOL=172.30.0.248/29
 make sync CLUSTER=k8s-labs-2 HTTP_PORT=8081 REGISTRY_PORT=5051
 make down CLUSTER=k8s-labs-2
 ```
@@ -73,6 +73,7 @@ lab gives each one job.
 | Job | Done by |
 | --- | --- |
 | Pod networking, Services (in place of kube-proxy), flow visibility | Cilium |
+| Addresses for Services of type LoadBalancer | Cilium |
 | `NetworkPolicy`: which pods can open a connection to which | Cilium |
 | mTLS between pods, HTTP routing, HTTP metrics and traces | Istio ambient (ztunnel and waypoints) |
 | `AuthorizationPolicy`: which identity may do what | Istio |
@@ -102,6 +103,23 @@ spec:
         - name: my-app
           port: 80
 ```
+
+### LoadBalancer addresses
+
+A `Service` of type `LoadBalancer` gets an address from `172.30.0.240/29`,
+on the Docker network of the lab. The ingress Gateway has the first one:
+
+```sh
+kubectl --context kind-k8s-labs -n istio-ingress get gateway ingress
+curl -H 'Host: grafana.localhost' http://172.30.0.240/
+```
+
+The address answers on port 80, but `*.localhost` always resolves to
+`127.0.0.1`, so a request to it has to carry the hostname itself, as above or
+with `curl --resolve`. In a browser keep using `<name>.localhost:8080`.
+
+This only works where the host can reach the Docker network: on Linux and
+with OrbStack, not with Docker Desktop. `localhost:8080` works everywhere.
 
 ### Observability
 
@@ -235,7 +253,7 @@ cluster-wide ones such as the Gateway API CRDs are under `kube-system`.
 | --- | --- | --- | --- |
 | `cilium` | `kube-system/cilium` | The `cilium` chart; takes over the release that `make up` installed | |
 | `cilium-monitoring` | `kube-system/cilium`, directory `monitoring/` | Monitors for the agent and the operator, and the `HTTPRoute` of the Hubble UI | `cilium`, `kube-prometheus-stack` |
-| `cilium-policies` | `kube-system/cilium`, directory `policies/` | Lets kubelet probes into ambient pods under a default-deny policy | `cilium` |
+| `cilium-policies` | `kube-system/cilium`, directory `policies/` | Lets kubelet probes into ambient pods under a default-deny policy, and announces LoadBalancer addresses on the Docker network | `cilium` |
 | `gateway-api` | `kube-system/gateway-api` | Gateway API CRDs, fetched from upstream at a tag | |
 | `istio` | `istio-system/istio` | `istio-base`, `istiod`, `istio-cni`, `ztunnel` charts | `gateway-api` |
 | `istio-policies` | `istio-system/istio`, directory `policies/` | Strict mTLS for the whole mesh | `istio` |
@@ -261,8 +279,9 @@ their CRDs, which is why the Istio monitors are a second Kustomization in the sa
 everything in a Kustomization before applying any of it, and a `PodMonitor`
 next to the release that brings its CRD would never pass.
 
-Istio deploys an Envoy for the Gateway and exposes it as a NodePort, which
-`bootstrap/kind.yaml` maps to `localhost:8080`.
+Istio deploys an Envoy for the Gateway and exposes it as a LoadBalancer
+Service. Its node port is pinned to the one that `bootstrap/kind.yaml` maps
+to `localhost:8080`.
 
 ### What `make up` applies itself
 
@@ -273,7 +292,13 @@ because it has to exist before Flux has anything to sync:
 | -------------------- | ------------------------------------------------- |
 | `kind.yaml`          | Cluster definition, host port mappings, the data mount and the control-plane metrics endpoints |
 | `registry.yaml`      | The in-cluster registry                           |
+| `lb-pool.yaml`       | The range of LoadBalancer addresses               |
 | `flux-instance.yaml` | Flux version, components and where it syncs from  |
+
+`make up` also creates the Docker network `k8s-labs` when it is missing, with
+a fixed subnet (`172.30.0.0/24`), so that LoadBalancer addresses can be
+written down ahead of time. Nodes get addresses from the lower half; the rest
+is for pools. `make down` leaves the network in place.
 
 `make up` also installs Cilium with Helm, right after creating the cluster.
 kind starts with no CNI, and without one no pod can run, Flux included. The
@@ -290,8 +315,11 @@ because it stamps the chart version with the digest of the chart.
   Kustomizations pick up the new artifact right after and reconcile on their
   own; follow them with
   `flux --context kind-k8s-labs get kustomizations --watch`.
-- `bootstrap/kind.yaml` only takes effect when the cluster is created. After
-  changing it, run `make down` and `make up`.
+- `bootstrap/kind.yaml` and the Docker network only take effect when the
+  cluster is created. After changing them, run `make down` and `make up`.
+- Two labs on the same Docker network must not share LoadBalancer addresses:
+  both nodes would answer for them. That is why the pool is in `bootstrap/`
+  with a Makefile variable and not under `apps/`.
 - kubeadm binds the metrics of etcd, the scheduler and the controller manager
   to localhost. `bootstrap/kind.yaml` moves them to `0.0.0.0` so that
   Prometheus can scrape them.
@@ -362,7 +390,7 @@ because it stamps the chart version with the digest of the chart.
 6. ~~A waypoint for podinfo, so that the canary also applies inside the mesh~~
 7. ~~Cilium as the CNI, in place of kindnet and kube-proxy~~
 8. ~~Policies: default-deny `NetworkPolicy`, strict mTLS and `AuthorizationPolicy`~~
-9. LoadBalancer IPs
+9. ~~LoadBalancer addresses from Cilium~~
 
 Maybe later: Cilium as a second Gateway API controller next to Istio, to
 compare the two.

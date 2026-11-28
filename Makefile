@@ -1,6 +1,6 @@
 # A second lab can run next to the first one under another name, with its own
-# host ports and data, for example:
-#   make up CLUSTER=k8s-labs-2 HTTP_PORT=8081 REGISTRY_PORT=5051
+# host ports, LoadBalancer addresses and data, for example:
+#   make up CLUSTER=k8s-labs-2 HTTP_PORT=8081 REGISTRY_PORT=5051 LB_POOL=172.30.0.248/29
 # Pass the same variables to every other target.
 CLUSTER       := k8s-labs
 # Host port of the ingress Gateway.
@@ -8,6 +8,18 @@ HTTP_PORT     := 8080
 # Host port of the in-cluster registry. 5050 because macOS AirPlay Receiver
 # holds 5000.
 REGISTRY_PORT := 5050
+
+
+# Docker network that the nodes of every lab attach to. Its subnet is fixed so
+# that LoadBalancer addresses can be chosen ahead of time: Docker gives the
+# nodes addresses from NODE_RANGE, and the rest is left for LB_POOL.
+NETWORK      := k8s-labs
+SUBNET       := 172.30.0.0/24
+NODE_RANGE   := 172.30.0.0/25
+SUBNET_IPV6  := fd00:172:30::/64
+# Addresses that Cilium hands to Services of type LoadBalancer
+# (bootstrap/lb-pool.yaml). Labs on the same network must not overlap.
+LB_POOL      := 172.30.0.240/29
 
 FLUX_OPERATOR_VERSION := 0.64.0
 # Keep in step with the tag in apps/kube-system/cilium/app/release.yaml.
@@ -47,10 +59,16 @@ down: ## Delete the cluster
 .PHONY: cluster
 cluster:
 	@mkdir -p $(DATA_DIR)/prometheus $(DATA_DIR)/loki $(DATA_DIR)/tempo
+	@docker network inspect $(NETWORK) >/dev/null 2>&1 \
+		|| docker network create $(NETWORK) \
+			--subnet $(SUBNET) --ip-range $(NODE_RANGE) \
+			--ipv6 --subnet $(SUBNET_IPV6) \
+			--opt com.docker.network.bridge.enable_ip_masquerade=true
 	@kind get clusters 2>/dev/null | grep -qx $(CLUSTER) \
 		|| sed -e 's|DATA_DIR|$(DATA_DIR)|' -e 's|HTTP_PORT|$(HTTP_PORT)|' \
 			-e 's|REGISTRY_PORT|$(REGISTRY_PORT)|' bootstrap/kind.yaml \
-		| kind create cluster --name $(CLUSTER) --config -
+		| KIND_EXPERIMENTAL_DOCKER_NETWORK=$(NETWORK) \
+			kind create cluster --name $(CLUSTER) --config -
 
 # The cluster is created with no CNI, so nothing runs until Cilium is in, Flux
 # included. Flux takes the release over afterwards (apps/kube-system/cilium)
@@ -62,6 +80,9 @@ cilium:
 			--version $(CILIUM_VERSION) --namespace kube-system \
 			--values apps/kube-system/cilium/app/values.yaml --wait
 	$(KUBECTL) wait node --all --for=condition=Ready --timeout=2m
+	$(KUBECTL) wait crd/ciliumloadbalancerippools.cilium.io \
+		--for=condition=Established --timeout=2m
+	sed 's|LB_POOL|$(LB_POOL)|' bootstrap/lb-pool.yaml | $(KUBECTL) apply -f -
 
 .PHONY: registry
 registry:
