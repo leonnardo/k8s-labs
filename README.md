@@ -1,9 +1,10 @@
 # k8s-labs
 
 Local Kubernetes lab on [kind](https://kind.sigs.k8s.io/), built one layer at a
-time: Flux, Istio ambient, Flagger and observability.
+time: Cilium, Flux, Istio ambient, Flagger and observability.
 
-Five layers exist so far: a cluster where Flux reconciles whatever is in
+What exists so far: a cluster with Cilium as its network, where Flux
+reconciles whatever is in
 [`apps/`](apps) with no Git push in the loop, on top of it Istio in
 ambient mode with a Gateway reachable from the host, Prometheus, Alertmanager
 and Grafana watching all of it, Flagger releasing a demo app as a canary, and
@@ -23,6 +24,7 @@ Tested on macOS with OrbStack (the first two layers also on Linux) with:
 | kubectl       | v1.37.3                    |
 | helm          | v4.3.2                     |
 | flux CLI      | v2.10.0                    |
+| Cilium        | 1.20.5, replaces kube-proxy |
 | Flux Operator | 0.64.0, installs Flux 2.10 |
 | Gateway API   | v1.6.1, standard channel   |
 | Istio         | 1.32.0, ambient mode       |
@@ -48,6 +50,32 @@ them. Nothing has to be committed first.
 
 Every command names the `kind-k8s-labs` context explicitly, so the lab never
 touches the cluster your current kubeconfig context points at.
+
+A second lab can run next to the first one, for example to try a change
+without touching the cluster you rely on. Give it a name and its own host
+ports, and pass the same variables to every target:
+
+```sh
+make up   CLUSTER=k8s-labs-2 HTTP_PORT=8081 REGISTRY_PORT=5051
+make sync CLUSTER=k8s-labs-2 HTTP_PORT=8081 REGISTRY_PORT=5051
+make down CLUSTER=k8s-labs-2
+```
+
+Its context is `kind-k8s-labs-2`, its URLs end in `:8081` and its data is in
+`~/.local/share/k8s-labs-2`.
+
+### Who does what
+
+Cilium and Istio overlap: both can be a mesh and a Gateway API controller. The
+lab gives each one job.
+
+| Job | Done by |
+| --- | --- |
+| Pod networking, Services (in place of kube-proxy), flow visibility | Cilium |
+| mTLS between pods, HTTP routing, HTTP metrics and traces | Istio ambient (ztunnel and waypoints) |
+| Traffic from outside | Istio, through the `ingress` Gateway |
+
+Cilium's own Envoy, L7 policies and Gateway API support are turned off.
 
 ### Exposing an app
 
@@ -79,6 +107,7 @@ spec:
 | <http://grafana.localhost:8080>      | Grafana, no login, as admin  |
 | <http://prometheus.localhost:8080>   | Prometheus                   |
 | <http://alertmanager.localhost:8080> | Alertmanager, no receivers   |
+| <http://hubble.localhost:8080>       | Hubble UI: network flows per namespace, allowed and dropped |
 
 Prometheus picks up every `ServiceMonitor`, `PodMonitor`, `PrometheusRule`,
 `Probe` and `ScrapeConfig` in the cluster, from any namespace and with no
@@ -172,6 +201,8 @@ cluster-wide ones such as the Gateway API CRDs are under `kube-system`.
 
 | Kustomization | In | Applies | Depends on |
 | --- | --- | --- | --- |
+| `cilium` | `kube-system/cilium` | The `cilium` chart; takes over the release that `make up` installed | |
+| `cilium-monitoring` | `kube-system/cilium`, directory `monitoring/` | Monitors for the agent and the operator, and the `HTTPRoute` of the Hubble UI | `cilium`, `kube-prometheus-stack` |
 | `gateway-api` | `kube-system/gateway-api` | Gateway API CRDs, fetched from upstream at a tag | |
 | `istio` | `istio-system/istio` | `istio-base`, `istiod`, `istio-cni`, `ztunnel` charts | `gateway-api` |
 | `ingress` | `istio-ingress/ingress` | The `ingress` Gateway | `istio` |
@@ -209,6 +240,15 @@ because it has to exist before Flux has anything to sync:
 | `registry.yaml`      | The in-cluster registry                           |
 | `flux-instance.yaml` | Flux version, components and where it syncs from  |
 
+`make up` also installs Cilium with Helm, right after creating the cluster.
+kind starts with no CNI, and without one no pod can run, Flux included. The
+values come from
+[`apps/kube-system/cilium/app/values.yaml`](apps/kube-system/cilium/app/values.yaml),
+the same file the Flux `HelmRelease` reads, so there is one place to change
+them. After the first install, changes go through `make sync` like everything
+else. When Flux takes the release over it restarts the Cilium pods once,
+because it stamps the chart version with the digest of the chart.
+
 ### Things to know
 
 - `make sync` returns once the root Kustomization is applied. The component
@@ -217,9 +257,19 @@ because it has to exist before Flux has anything to sync:
   `flux --context kind-k8s-labs get kustomizations --watch`.
 - `bootstrap/kind.yaml` only takes effect when the cluster is created. After
   changing it, run `make down` and `make up`.
-- kubeadm binds the metrics of etcd, the scheduler, the controller manager and
-  kube-proxy to localhost. `bootstrap/kind.yaml` moves them to `0.0.0.0` so
-  that Prometheus can scrape them.
+- kubeadm binds the metrics of etcd, the scheduler and the controller manager
+  to localhost. `bootstrap/kind.yaml` moves them to `0.0.0.0` so that
+  Prometheus can scrape them.
+- The Cilium version is written twice: in the Makefile, for the first
+  install, and in `apps/kube-system/cilium/app/release.yaml`.
+- Istio ambient needs three things from Cilium, all set in the values file:
+  `cni.exclusive: false`, `socketLB.hostNamespaceOnly: true` and iptables
+  masquerading (`bpf.masquerade` left off).
+- The lab has no `NetworkPolicy` yet. With a default-deny policy, Cilium
+  blocks the kubelet's health probes to ambient pods, which Istio sends from
+  `169.254.7.127`; the Istio docs have the policy that allows them.
+- Between ambient pods Cilium and Hubble only see the encrypted tunnel on
+  port 15008, not the port of the app.
 - HTTP metrics such as `istio_requests_total` exist for traffic that enters
   through the Gateway (`reporter="source"`) and for traffic to a Service of a
   namespace with a waypoint (`reporter="waypoint"`). Elsewhere ztunnel
@@ -262,6 +312,9 @@ because it has to exist before Flux has anything to sync:
 4. ~~Flagger with a canary driven through the Gateway API~~
 5. ~~Loki, Tempo and OpenTelemetry~~
 6. ~~A waypoint for podinfo, so that the canary also applies inside the mesh~~
+7. ~~Cilium as the CNI, in place of kindnet and kube-proxy~~
+8. Policies: default-deny `NetworkPolicy`, strict mTLS and `AuthorizationPolicy`
+9. LoadBalancer IPs
 
-After that: Cilium as the CNI, LoadBalancer IPs and several Gateway API
-controllers side by side.
+Maybe later: Cilium as a second Gateway API controller next to Istio, to
+compare the two.

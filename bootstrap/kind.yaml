@@ -1,17 +1,22 @@
 # kind cluster for the lab. The cluster name comes from the Makefile.
 kind: Cluster
 apiVersion: kind.x-k8s.io/v1alpha4
+# Cilium is the CNI and also does the work of kube-proxy. `make up` installs it
+# right after the cluster is created; until then the node is NotReady.
+networking:
+  disableDefaultCNI: true
+  kubeProxyMode: none
 nodes:
   - role: control-plane
     extraPortMappings:
       # In-cluster registry (bootstrap/registry.yaml), where `make sync` pushes.
-      # Host port 5050 because macOS AirPlay Receiver holds 5000.
+      # The Makefile replaces REGISTRY_PORT and HTTP_PORT.
       - containerPort: 30500
-        hostPort: 5050
+        hostPort: REGISTRY_PORT
         listenAddress: 127.0.0.1
       # Ingress Gateway (apps/istio-ingress/ingress/app/gateway.yaml): http://<name>.localhost:8080
       - containerPort: 30080
-        hostPort: 8080
+        hostPort: HTTP_PORT
         listenAddress: 127.0.0.1
     extraMounts:
       # Data that outlives the cluster. The Makefile replaces DATA_DIR with a
@@ -37,7 +42,3 @@ kubeadmConfigPatches:
         extraArgs:
           - name: listen-metrics-urls
             value: http://0.0.0.0:2381
-  - |
-    apiVersion: kubeproxy.config.k8s.io/v1alpha1
-    kind: KubeProxyConfiguration
-    metricsBindAddress: 0.0.0.0:10249

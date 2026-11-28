@@ -1,0 +1,53 @@
+# Values of the cilium chart. Used twice: by `make up` for the first install
+# and by release.yaml once Flux runs.
+
+# Cilium does the work of kube-proxy, so it has to reach the API server
+# without going through a Service. "auto" reads the address that kubeadm
+# published in the cluster-info ConfigMap.
+kubeProxyReplacement: true
+k8sServiceHost: auto
+
+# Pod addresses come from the range Kubernetes gave the node.
+ipam:
+  mode: kubernetes
+
+# One node, one operator.
+operator:
+  replicas: 1
+  prometheus:
+    enabled: true
+
+# What Istio ambient needs from Cilium:
+# - istio-cni adds itself to the CNI configuration. By default Cilium deletes
+#   whatever other plugins write there.
+# - Cilium may only translate Service addresses for processes on the host.
+#   Inside pods the connection must leave for the Service address, or ztunnel
+#   cannot tell which Service it was for.
+# BPF masquerading stays off (the default); it breaks the health probes of
+# ambient pods.
+cni:
+  exclusive: false
+socketLB:
+  hostNamespaceOnly: true
+
+# HTTP is Istio's job in this lab. Without this Cilium would run an Envoy on
+# every node for its own L7 policies and Gateway API support.
+l7Proxy: false
+envoy:
+  enabled: false
+
+prometheus:
+  enabled: true
+
+# Flow visibility: who talked to whom and what was dropped.
+hubble:
+  relay:
+    enabled: true
+  ui:
+    enabled: true
+  metrics:
+    enabled:
+      - dns
+      - drop
+      - tcp
+      - flow

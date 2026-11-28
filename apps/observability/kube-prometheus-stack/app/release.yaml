@@ -27,6 +27,9 @@ spec:
   upgrade:
     crds: CreateReplace
   values:
+    # Cilium replaces kube-proxy, so there is nothing to scrape.
+    kubeProxy:
+      enabled: false
     prometheusOperator:
       admissionWebhooks:
         certManager:
