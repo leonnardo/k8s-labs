@@ -1,0 +1,11 @@
+# Makes LoadBalancer addresses reachable: the node answers ARP for them on its
+# Docker network interface. It works for hosts that can reach that network,
+# which is the case on Linux and with OrbStack, not with Docker Desktop.
+apiVersion: cilium.io/v2alpha1
+kind: CiliumL2AnnouncementPolicy
+metadata:
+  name: lab
+spec:
+  interfaces:
+    - ^eth[0-9]+
+  loadBalancerIPs: true

@@ -1,0 +1,10 @@
+# Addresses for Services of type LoadBalancer. Here and not under apps/ because
+# it depends on the Docker network of the host, and two labs on that network
+# need different ranges. The Makefile replaces LB_POOL.
+apiVersion: cilium.io/v2
+kind: CiliumLoadBalancerIPPool
+metadata:
+  name: lab
+spec:
+  blocks:
+    - cidr: LB_POOL

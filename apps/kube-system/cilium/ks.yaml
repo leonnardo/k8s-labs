@@ -37,8 +37,9 @@ spec:
   prune: true
   wait: true
 ---
-# Cluster-wide network policy. A separate Kustomization because Cilium creates
-# its CRDs when it starts, not from the chart.
+# Cluster-wide Cilium policies: network policy and how LoadBalancer addresses
+# are announced. A separate Kustomization because Cilium creates its CRDs when
+# it starts, not from the chart.
 apiVersion: kustomize.toolkit.fluxcd.io/v1
 kind: Kustomization
 metadata:
