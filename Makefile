@@ -1,13 +1,24 @@
-CLUSTER               := k8s-labs
-FLUX_OPERATOR_VERSION := 0.64.0
+# A second lab can run next to the first one under another name, with its own
+# host ports and data, for example:
+#   make up CLUSTER=k8s-labs-2 HTTP_PORT=8081 REGISTRY_PORT=5051
+# Pass the same variables to every other target.
+CLUSTER       := k8s-labs
+# Host port of the ingress Gateway.
+HTTP_PORT     := 8080
+# Host port of the in-cluster registry. 5050 because macOS AirPlay Receiver
+# holds 5000.
+REGISTRY_PORT := 5050
 
-# Host side of the in-cluster registry (bootstrap/kind.yaml). The repository
-# name has to match sync.url in bootstrap/flux-instance.yaml.
-ARTIFACT := oci://localhost:5050/k8s-labs:latest
+FLUX_OPERATOR_VERSION := 0.64.0
+# Keep in step with the tag in apps/kube-system/cilium/app/release.yaml.
+CILIUM_VERSION        := 1.20.5
+
+# The repository name has to match sync.url in bootstrap/flux-instance.yaml.
+ARTIFACT := oci://localhost:$(REGISTRY_PORT)/k8s-labs:latest
 
 # Host directory mounted into the node (bootstrap/kind.yaml). PersistentVolumes
 # live here, so their data survives `make down`.
-DATA_DIR := $(HOME)/.local/share/k8s-labs
+DATA_DIR := $(HOME)/.local/share/$(CLUSTER)
 
 # Every command names the kind context, so the lab never touches whatever
 # cluster the current kubeconfig context points at.
@@ -23,7 +34,7 @@ help: ## List the targets
 	@awk -F ':.*## ' '/^[a-z-]+:.*## / {printf "  %-10s %s\n", $$1, $$2}' $(MAKEFILE_LIST)
 
 .PHONY: up
-up: cluster registry push flux ## Create the cluster and bootstrap Flux from ./clusters
+up: cluster cilium registry push flux ## Create the cluster and bootstrap Flux from ./clusters
 
 .PHONY: sync
 sync: push ## Push ./apps and ./clusters and have Flux reconcile them now
@@ -37,8 +48,20 @@ down: ## Delete the cluster
 cluster:
 	@mkdir -p $(DATA_DIR)/prometheus $(DATA_DIR)/loki $(DATA_DIR)/tempo
 	@kind get clusters 2>/dev/null | grep -qx $(CLUSTER) \
-		|| sed 's|DATA_DIR|$(DATA_DIR)|' bootstrap/kind.yaml \
-		| kind create cluster --name $(CLUSTER) --config - --wait 120s
+		|| sed -e 's|DATA_DIR|$(DATA_DIR)|' -e 's|HTTP_PORT|$(HTTP_PORT)|' \
+			-e 's|REGISTRY_PORT|$(REGISTRY_PORT)|' bootstrap/kind.yaml \
+		| kind create cluster --name $(CLUSTER) --config -
+
+# The cluster is created with no CNI, so nothing runs until Cilium is in, Flux
+# included. Flux takes the release over afterwards (apps/kube-system/cilium)
+# and reads the same values file, so this only runs when there is no release.
+.PHONY: cilium
+cilium:
+	@$(HELM) -n kube-system status cilium >/dev/null 2>&1 \
+		|| $(HELM) install cilium oci://quay.io/cilium/charts/cilium \
+			--version $(CILIUM_VERSION) --namespace kube-system \
+			--values apps/kube-system/cilium/app/values.yaml --wait
+	$(KUBECTL) wait node --all --for=condition=Ready --timeout=2m
 
 .PHONY: registry
 registry:
