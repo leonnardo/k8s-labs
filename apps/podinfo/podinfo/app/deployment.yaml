@@ -15,6 +15,9 @@ spec:
     metadata:
       labels:
         app: podinfo
+        # Flagger rewrites `app` on the primary; this one is the same on both
+        # and is what the AuthorizationPolicy selects.
+        app.kubernetes.io/name: podinfo
     spec:
       containers:
         - name: podinfo

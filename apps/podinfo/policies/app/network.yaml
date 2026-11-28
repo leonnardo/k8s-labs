@@ -1,0 +1,101 @@
+# Network level, enforced by Cilium: which pods can open a connection to which.
+#
+# Pods in the mesh talk to each other through an mTLS tunnel on port 15008,
+# whatever the port of the app is. That is the only port these rules can
+# name for mesh traffic; what happens inside the tunnel is decided by the
+# AuthorizationPolicies in authorization.yaml.
+
+# Nothing in or out unless a policy below allows it.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny
+  namespace: podinfo
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+    - Egress
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: mesh
+  namespace: podinfo
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    # The tunnel, from this namespace and from the ingress Gateway.
+    - from:
+        - podSelector: {}
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: istio-ingress
+      ports:
+        - port: 15008
+  egress:
+    # The tunnel, inside this namespace.
+    - to:
+        - podSelector: {}
+      ports:
+        - port: 15008
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - port: 53
+          protocol: UDP
+        - port: 53
+          protocol: TCP
+    # Traces, from podinfo and from the waypoint.
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: observability
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: otel-agent-collector
+      ports:
+        - port: 4317
+---
+# The waypoint is an Envoy like the ingress Gateway: istiod configures it and
+# Prometheus scrapes it.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: waypoint
+  namespace: podinfo
+spec:
+  podSelector:
+    matchLabels:
+      gateway.networking.k8s.io/gateway-name: waypoint
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: observability
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: prometheus
+      ports:
+        - port: 15020
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: istio-system
+          podSelector:
+            matchLabels:
+              app: istiod
+      ports:
+        - port: 15012

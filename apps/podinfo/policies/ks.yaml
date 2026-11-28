@@ -1,0 +1,19 @@
+# Who may reach this namespace and what they may do in it. Applied before the
+# app, so that it never runs without them.
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: podinfo-policies
+  namespace: flux-system
+spec:
+  dependsOn:
+    - name: istio
+  interval: 1h
+  retryInterval: 1m
+  timeout: 5m
+  sourceRef:
+    kind: OCIRepository
+    name: flux-system
+  path: ./apps/podinfo/policies/app
+  prune: true
+  wait: true

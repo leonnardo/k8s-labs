@@ -7,8 +7,9 @@ What exists so far: a cluster with Cilium as its network, where Flux
 reconciles whatever is in
 [`apps/`](apps) with no Git push in the loop, on top of it Istio in
 ambient mode with a Gateway reachable from the host, Prometheus, Alertmanager
-and Grafana watching all of it, Flagger releasing a demo app as a canary, and
-logs and traces collected with OpenTelemetry into Loki and Tempo.
+and Grafana watching all of it, Flagger releasing a demo app as a canary,
+logs and traces collected with OpenTelemetry into Loki and Tempo, and the
+demo app locked down with network and mesh policies.
 
 ## Requirements
 
@@ -72,7 +73,9 @@ lab gives each one job.
 | Job | Done by |
 | --- | --- |
 | Pod networking, Services (in place of kube-proxy), flow visibility | Cilium |
+| `NetworkPolicy`: which pods can open a connection to which | Cilium |
 | mTLS between pods, HTTP routing, HTTP metrics and traces | Istio ambient (ztunnel and waypoints) |
+| `AuthorizationPolicy`: which identity may do what | Istio |
 | Traffic from outside | Istio, through the `ingress` Gateway |
 
 Cilium's own Envoy, L7 policies and Gateway API support are turned off.
@@ -166,6 +169,35 @@ namespace needs a waypoint: a `Gateway` of class `istio-waypoint` and the
 label `istio.io/use-waypoint` on the namespace, as in
 [`apps/podinfo`](apps/podinfo). Only `podinfo` has one.
 
+### Policies
+
+The `podinfo` namespace shows the three layers of protection together. Use it
+as the model for an app namespace; the other namespaces have no policies.
+
+| Layer | Resource | What it does here |
+| --- | --- | --- |
+| Network | `NetworkPolicy` in [`apps/podinfo/policies`](apps/podinfo/policies/app/network.yaml) | Nothing gets in or out of the namespace except the mesh tunnel from the ingress Gateway and from the namespace itself, DNS, traces to the collector, and what the waypoint needs |
+| Identity | `PeerAuthentication` in [`apps/istio-system/istio/policies`](apps/istio-system/istio/policies/peer-authentication.yaml) | Pods in the mesh refuse plain text, mesh-wide |
+| Authorization, L4 | `AuthorizationPolicy` `podinfo-callers` | The podinfo pods accept only the ingress Gateway and the waypoint, so nothing in the mesh can skip the waypoint |
+| Authorization, L7 | `AuthorizationPolicy` `read-only` | Through the waypoint, only `GET` and `HEAD`; anything else gets a 403 |
+
+What that looks like from a pod:
+
+| Request | Result | Refused by |
+| --- | --- | --- |
+| `GET` from a pod in `podinfo` to `podinfo:9898` | 200 | |
+| `POST` from the same pod | 403 | the waypoint |
+| The same pod straight to the podinfo pod's address | connection reset | ztunnel |
+| A pod in another namespace | timeout | Cilium |
+| A pod in `podinfo` to anything else, the internet included | timeout | Cilium |
+
+Dropped connections show up in the Hubble UI and with:
+
+```sh
+kubectl --context kind-k8s-labs -n kube-system exec ds/cilium -c cilium-agent -- \
+  hubble observe --namespace podinfo --verdict DROPPED
+```
+
 ## How it works
 
 ```
@@ -203,8 +235,10 @@ cluster-wide ones such as the Gateway API CRDs are under `kube-system`.
 | --- | --- | --- | --- |
 | `cilium` | `kube-system/cilium` | The `cilium` chart; takes over the release that `make up` installed | |
 | `cilium-monitoring` | `kube-system/cilium`, directory `monitoring/` | Monitors for the agent and the operator, and the `HTTPRoute` of the Hubble UI | `cilium`, `kube-prometheus-stack` |
+| `cilium-policies` | `kube-system/cilium`, directory `policies/` | Lets kubelet probes into ambient pods under a default-deny policy | `cilium` |
 | `gateway-api` | `kube-system/gateway-api` | Gateway API CRDs, fetched from upstream at a tag | |
 | `istio` | `istio-system/istio` | `istio-base`, `istiod`, `istio-cni`, `ztunnel` charts | `gateway-api` |
+| `istio-policies` | `istio-system/istio`, directory `policies/` | Strict mTLS for the whole mesh | `istio` |
 | `ingress` | `istio-ingress/ingress` | The `ingress` Gateway | `istio` |
 | `cert-manager` | `cert-manager/cert-manager` | The `cert-manager` chart | |
 | `metrics-server` | `kube-system/metrics-server` | The `metrics-server` chart, for `kubectl top` | |
@@ -214,7 +248,8 @@ cluster-wide ones such as the Gateway API CRDs are under `kube-system`.
 | `flagger-metrics` | `flagger-system/flagger`, directory `metrics/` | The `MetricTemplate`s a canary analysis can use | `flagger` |
 | `loadtester` | `flagger-system/loadtester` | The `loadtester` chart, which generates traffic during an analysis | |
 | `podinfo-waypoint` | `podinfo/waypoint` | The waypoint of the `podinfo` namespace | `istio` |
-| `podinfo` | `podinfo/podinfo` | The demo Deployment and its `Canary` | `ingress`, `podinfo-waypoint`, `flagger-metrics`, `loadtester` |
+| `podinfo-policies` | `podinfo/policies` | The `NetworkPolicy`s and `AuthorizationPolicy`s of the namespace | `istio` |
+| `podinfo` | `podinfo/podinfo` | The demo Deployment and its `Canary` | `ingress`, `podinfo-waypoint`, `podinfo-policies`, `flagger-metrics`, `loadtester` |
 | `loki` | `observability/loki` | The `loki` chart as a single instance, its volume and its Grafana datasource | `kube-prometheus-stack` |
 | `tempo` | `observability/tempo` | The `tempo` chart, its volume and its Grafana datasource | `kube-prometheus-stack` |
 | `opentelemetry-operator` | `observability/opentelemetry-operator` | The `opentelemetry-operator` chart | `cert-manager` |
@@ -265,11 +300,24 @@ because it stamps the chart version with the digest of the chart.
 - Istio ambient needs three things from Cilium, all set in the values file:
   `cni.exclusive: false`, `socketLB.hostNamespaceOnly: true` and iptables
   masquerading (`bpf.masquerade` left off).
-- The lab has no `NetworkPolicy` yet. With a default-deny policy, Cilium
-  blocks the kubelet's health probes to ambient pods, which Istio sends from
-  `169.254.7.127`; the Istio docs have the policy that allows them.
 - Between ambient pods Cilium and Hubble only see the encrypted tunnel on
-  port 15008, not the port of the app.
+  port 15008, not the port of the app. A `NetworkPolicy` for mesh traffic
+  therefore names 15008; rules about the app's port or about HTTP belong in
+  an `AuthorizationPolicy`.
+- Under a default-deny policy Cilium would block the kubelet's health probes
+  to ambient pods, which Istio sends from `169.254.7.127`. The
+  `cilium-policies` Kustomization allows that address everywhere.
+- A process on the node itself gets past both layers: Cilium always lets the
+  node reach its pods, and Istio treats traffic from the node as kubelet
+  probes.
+- Requests from outside reach podinfo straight from the ingress Gateway, so
+  the `read-only` policy on the waypoint does not apply to them.
+- With strict mTLS, a namespace that joins the mesh stops accepting plain
+  connections to its pods. A Prometheus outside the mesh can no longer scrape
+  them directly.
+- Egress rules by DNS name (`toFQDNs` in a `CiliumNetworkPolicy`) do not work:
+  they need Cilium's DNS proxy, which is off together with the rest of its L7
+  proxy.
 - HTTP metrics such as `istio_requests_total` exist for traffic that enters
   through the Gateway (`reporter="source"`) and for traffic to a Service of a
   namespace with a waypoint (`reporter="waypoint"`). Elsewhere ztunnel
@@ -313,7 +361,7 @@ because it stamps the chart version with the digest of the chart.
 5. ~~Loki, Tempo and OpenTelemetry~~
 6. ~~A waypoint for podinfo, so that the canary also applies inside the mesh~~
 7. ~~Cilium as the CNI, in place of kindnet and kube-proxy~~
-8. Policies: default-deny `NetworkPolicy`, strict mTLS and `AuthorizationPolicy`
+8. ~~Policies: default-deny `NetworkPolicy`, strict mTLS and `AuthorizationPolicy`~~
 9. LoadBalancer IPs
 
 Maybe later: Cilium as a second Gateway API controller next to Istio, to

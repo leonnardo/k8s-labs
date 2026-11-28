@@ -1,0 +1,14 @@
+# Pods in the mesh only accept mTLS. By default Istio also lets plain text in,
+# so that workloads outside the mesh keep working.
+#
+# In the root namespace this applies to the whole mesh. A namespace that joins
+# the mesh stops accepting plain connections to its pods, including scrapes
+# from a Prometheus that is not in the mesh.
+apiVersion: security.istio.io/v1
+kind: PeerAuthentication
+metadata:
+  name: default
+  namespace: istio-system
+spec:
+  mtls:
+    mode: STRICT

@@ -1,0 +1,42 @@
+# Mesh level, enforced by Istio on the identity that mTLS proves.
+
+# On the podinfo pods, enforced by ztunnel: only the ingress Gateway and the
+# waypoint may connect. Another pod in the mesh cannot skip the waypoint and
+# talk to podinfo directly.
+apiVersion: security.istio.io/v1
+kind: AuthorizationPolicy
+metadata:
+  name: podinfo-callers
+  namespace: podinfo
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: podinfo
+  action: ALLOW
+  rules:
+    - from:
+        - source:
+            principals:
+              - cluster.local/ns/istio-ingress/sa/ingress-istio
+              - cluster.local/ns/podinfo/sa/waypoint
+---
+# On the waypoint, which sees HTTP: callers inside the mesh may only read.
+# Anything else gets a 403. Requests from outside do not pass through the
+# waypoint, so this does not apply to them.
+apiVersion: security.istio.io/v1
+kind: AuthorizationPolicy
+metadata:
+  name: read-only
+  namespace: podinfo
+spec:
+  targetRefs:
+    - group: gateway.networking.k8s.io
+      kind: Gateway
+      name: waypoint
+  action: ALLOW
+  rules:
+    - to:
+        - operation:
+            methods:
+              - GET
+              - HEAD

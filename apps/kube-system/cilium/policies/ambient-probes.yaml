@@ -1,0 +1,18 @@
+# Cilium always lets the kubelet probe the pods on its node. For pods in the
+# ambient mesh Istio rewrites the source of those probes to this address, which
+# Cilium does not know, so a namespace with a default-deny policy would fail
+# its probes. From the Istio docs, "Platform-Specific Prerequisites".
+# enableDefaultDeny keeps this policy from turning on default-deny by itself.
+apiVersion: cilium.io/v2
+kind: CiliumClusterwideNetworkPolicy
+metadata:
+  name: allow-ambient-hostprobes
+spec:
+  description: Allows SNAT-ed kubelet health check probes into ambient pods
+  enableDefaultDeny:
+    egress: false
+    ingress: false
+  endpointSelector: {}
+  ingress:
+    - fromCIDR:
+        - 169.254.7.127/32
